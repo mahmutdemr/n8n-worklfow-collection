@@ -9,12 +9,26 @@ This repository provides a local, fast search interface for the workflow archive
 uv sync
 uv run n8n-search build
 uv run n8n-search search "postgres slack"
+uv run n8n-search serve
 ```
 
 The `build` command reads `collection/workflow-map.json` and creates
 `.n8n-search/workflows.sqlite3`. It only indexes map metadata, so building is quick even
 though the archive contains more than 10,000 workflow JSON files. Re-run it whenever the
 map is updated.
+
+## Browser interface
+
+Start the local interface with:
+
+```bash
+uv run n8n-search serve
+```
+
+Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). The interface uses the
+same local index as the command-line tool. It does not upload the collection;
+press `Ctrl+C` in the terminal to stop it. Use `--port 9000` or `--host 0.0.0.0`
+only when you specifically need another address.
 
 ## Search examples
 

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10151d">
+    <title>n8n İş Akışı Bulucu</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="eyebrow"><span class="pulse"></span> Yerel iş akışı koleksiyonu</div>
+        <h1>İhtiyacınız olan<br><em>iş akışını bulun.</em></h1>
+        <p class="lede">n8n iş akışı arşivinizde ada, kategoriye, oluşturana ve popülerliğe göre arayın.</p>
+        <p class="index-status" id="index-status" aria-live="polite">Arama indeksi kontrol ediliyor…</p>
+      </header>
+
+      <section class="search-panel" aria-label="İş akışı arama">
+        <form id="search-form">
+          <label class="query-field" for="query">
+            <span class="search-mark" aria-hidden="true">⌕</span>
+            <input id="query" name="q" type="search" placeholder="“Slack onayı”, “Postgres”, “OpenAI” gibi arayın…" autocomplete="off" autofocus>
+            <kbd>/</kbd>
+          </label>
+
+          <div class="controls">
+            <label>Eşleşme
+              <select name="mode">
+                <option value="all">tüm kelimeler</option>
+                <option value="any">herhangi bir kelime</option>
+              </select>
+            </label>
+            <label>Kategori
+              <input name="category" type="text" placeholder="Örn. Engineering">
+            </label>
+            <label>Oluşturan
+              <input name="creator" type="text" placeholder="Ad veya kullanıcı adı">
+            </label>
+            <label>Min. görüntüleme
+              <input name="min_views" type="number" min="0" inputmode="numeric" placeholder="0">
+            </label>
+            <label>Sırala
+              <select name="sort">
+                <option value="rank">ilgi düzeyi</option>
+                <option value="views">en çok görüntülenen</option>
+              </select>
+            </label>
+            <button class="clear" type="button" id="clear">Temizle</button>
+            <button class="submit" type="submit">Ara <span aria-hidden="true">↗</span></button>
+          </div>
+        </form>
+      </section>
+
+      <section class="results" aria-live="polite" aria-busy="false">
+        <div class="results-heading">
+          <p id="result-summary">Koleksiyonu keşfetmek için bir arama girin.</p>
+          <span id="loading" hidden>Aranıyor…</span>
+        </div>
+        <div id="result-list" class="result-list"></div>
+      </section>
+    </main>
+    <template id="result-template">
+      <article class="result-card">
+        <div class="result-topline">
+          <span class="workflow-id"></span>
+          <span class="views"></span>
+        </div>
+        <h2></h2>
+        <p class="meta"></p>
+        <div class="chips"></div>
+        <div class="result-actions">
+          <a class="gallery" target="_blank" rel="noreferrer">n8n’de aç <span aria-hidden="true">↗</span></a>
+          <button class="copy-path" type="button">Yerel yolu kopyala</button>
+        </div>
+      </article>
+    </template>
+  </body>
+</html>

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, build_index, get_stats, resolved_local_file, search
+from .web import serve
 
 
 def _path(value: str) -> Path:
@@ -38,6 +39,12 @@ def _parser() -> argparse.ArgumentParser:
 
     stats = subcommands.add_parser("stats", help="Show index metadata.")
     stats.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
+
+    web = subcommands.add_parser("serve", help="Open the local browser search interface.")
+    web.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path used to resolve local files")
+    web.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
+    web.add_argument("--host", default="127.0.0.1", help="Host to listen on (default: 127.0.0.1)")
+    web.add_argument("--port", type=int, default=8765, help="Port to listen on (default: 8765)")
     return parser
 
 
@@ -78,6 +85,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "stats":
             for key, value in get_stats(args.index).items():
                 print(f"{key}: {value}")
+        elif args.command == "serve":
+            serve(index_path=args.index, map_path=args.file, host=args.host, port=args.port)
     except (FileNotFoundError, ValueError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2

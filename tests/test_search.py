@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from n8n_workflow_search.search import build_index, get_stats, search
+from n8n_workflow_search.web import create_handler
 
 
 def _write_map(path: Path) -> None:
@@ -62,3 +63,14 @@ def test_search_any_mode_and_view_sort(tmp_path: Path) -> None:
     results = search("notion slack", index_path=index_path, mode="any", sort="views")
 
     assert [result.id for result in results] == [1, 2]
+
+
+def test_web_handler_binds_the_selected_paths(tmp_path: Path) -> None:
+    map_path = tmp_path / "workflow-map.json"
+    index_path = tmp_path / "workflows.sqlite3"
+    _write_map(map_path)
+    build_index(map_path, index_path)
+
+    handler = create_handler(index_path, map_path)
+
+    assert handler.__name__ == "WorkflowSearchHandler"
