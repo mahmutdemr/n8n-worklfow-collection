@@ -29,7 +29,7 @@ function renderResults(results) {
   for (const workflow of results) {
     const card = template.content.cloneNode(true);
     card.querySelector(".workflow-id").textContent = `#${workflow.id}`;
-    card.querySelector(".views").textContent = `${compactNumber.format(workflow.views)} views`;
+    card.querySelector(".views").textContent = `${workflow.node_count} nodes · ${compactNumber.format(workflow.views)} views`;
     card.querySelector("h2").textContent = workflow.name;
     card.querySelector(".meta").textContent = workflow.creator_name || workflow.creator_username || "Unknown creator";
     const chips = card.querySelector(".chips");

@@ -75,6 +75,8 @@ def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHa
                     category_id=_integer(_one(parameters, "category_id"), "Category"),
                     creator=_one(parameters, "creator").strip() or None,
                     min_views=_integer(_one(parameters, "min_views"), "Minimum views"),
+                    min_nodes=_integer(_one(parameters, "min_nodes"), "Minimum nodes"),
+                    max_nodes=_integer(_one(parameters, "max_nodes"), "Maximum nodes"),
                     limit=_integer(_one(parameters, "limit"), "Limit", 30) or 30,
                     sort=_one(parameters, "sort", "rank"),
                 )

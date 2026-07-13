@@ -9,7 +9,16 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Sequence
 
-from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, build_index, get_categories, get_stats, resolved_local_file, search
+from .search import (
+    DEFAULT_INDEX_PATH,
+    DEFAULT_MAP_PATH,
+    build_index,
+    enrich_node_counts,
+    get_categories,
+    get_stats,
+    resolved_local_file,
+    search,
+)
 from .web import serve
 
 
@@ -25,6 +34,10 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path")
     build.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
 
+    enrich = subcommands.add_parser("enrich-node-counts", help="Scan workflow JSON files and add nodeCount to the map.")
+    enrich.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path")
+    enrich.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
+
     query = subcommands.add_parser("search", help="Search workflow metadata.")
     query.add_argument("query", help="Words to search for")
     query.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path used to resolve local files")
@@ -34,6 +47,8 @@ def _parser() -> argparse.ArgumentParser:
     query.add_argument("--category-id", type=int, help="Exact category id from 'n8n-search categories'")
     query.add_argument("--creator", help="Case-insensitive creator name or username filter")
     query.add_argument("--min-views", type=int, help="Minimum n8n gallery views")
+    query.add_argument("--min-nodes", type=int, help="Minimum workflow node count")
+    query.add_argument("--max-nodes", type=int, help="Maximum workflow node count")
     query.add_argument("--limit", type=int, default=20, help="Maximum results (default: 20)")
     query.add_argument("--sort", choices=("rank", "views"), default="rank", help="Order by full-text rank or views")
     query.add_argument("--json", action="store_true", help="Print JSON instead of a readable list")
@@ -72,6 +87,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "build":
             count = build_index(args.file, args.index)
             print(f"Indexed {count:,} workflows in {args.index}.")
+        elif args.command == "enrich-node-counts":
+            workflow_count, total_nodes = enrich_node_counts(args.file)
+            build_index(args.file, args.index)
+            print(f"Added nodeCount for {workflow_count:,} workflows ({total_nodes:,} total nodes) and rebuilt {args.index}.")
         elif args.command == "search":
             results = search(
                 args.query,
@@ -81,6 +100,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 category_id=args.category_id,
                 creator=args.creator,
                 min_views=args.min_views,
+                min_nodes=args.min_nodes,
+                max_nodes=args.max_nodes,
                 limit=args.limit,
                 sort=args.sort,
             )

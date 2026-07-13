@@ -8,6 +8,7 @@ import re
 import sqlite3
 import tempfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -21,6 +22,7 @@ class SearchResult:
     name: str
     slug: str
     views: int
+    node_count: int
     creator_name: str
     creator_username: str
     categories: str
@@ -73,6 +75,45 @@ def _load_workflows(map_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]
     return payload, workflows
 
 
+def enrich_node_counts(map_path: Path = DEFAULT_MAP_PATH) -> tuple[int, int]:
+    """Scan every local workflow and record its node count in the workflow map.
+
+    The replacement is atomic: a missing or malformed workflow file leaves the
+    original map untouched. Returns the workflow and total-node counts.
+    """
+    payload, workflows = _load_workflows(map_path)
+    total_nodes = 0
+    for workflow in workflows:
+        workflow_path = map_path.parent / str(workflow["file"])
+        try:
+            with workflow_path.open(encoding="utf-8") as source:
+                workflow_json = json.load(source)
+        except FileNotFoundError as error:
+            raise FileNotFoundError(f"Workflow file was not found: {workflow_path}") from error
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Workflow file is not valid JSON: {workflow_path} ({error})") from error
+        nodes = workflow_json.get("nodes") if isinstance(workflow_json, dict) else None
+        if not isinstance(nodes, list):
+            raise ValueError(f"Workflow has no 'nodes' list: {workflow_path}")
+        workflow["nodeCount"] = len(nodes)
+        total_nodes += len(nodes)
+
+    payload["schemaVersion"] = max(int(payload.get("schemaVersion", 1)), 2)
+    payload["nodeCountGeneratedAt"] = datetime.now(UTC).isoformat()
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", prefix=f".{map_path.name}.", suffix=".tmp", dir=map_path.parent, delete=False
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+        json.dump(payload, temporary, ensure_ascii=False, indent=2)
+        temporary.write("\n")
+    try:
+        temporary_path.replace(map_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return len(workflows), total_nodes
+
+
 def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_INDEX_PATH) -> int:
     """Build a new index atomically and return the number of indexed workflows."""
     payload, workflows = _load_workflows(map_path)
@@ -95,6 +136,7 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     name TEXT NOT NULL,
                     slug TEXT NOT NULL,
                     views INTEGER NOT NULL,
+                    node_count INTEGER NOT NULL,
                     creator_name TEXT NOT NULL,
                     creator_username TEXT NOT NULL,
                     categories TEXT NOT NULL,
@@ -130,6 +172,7 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                         str(workflow.get("name") or ""),
                         str(workflow.get("slug") or ""),
                         int(workflow.get("views") or 0),
+                        int(workflow.get("nodeCount") or 0),
                         str(creator.get("name") or ""),
                         str(creator.get("username") or ""),
                         _category_text(workflow.get("categories") or []),
@@ -140,8 +183,8 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
             connection.executemany(
                 """
                 INSERT INTO workflow (
-                    id, name, slug, views, creator_name, creator_username, categories, gallery_url, file
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, name, slug, views, node_count, creator_name, creator_username, categories, gallery_url, file
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -205,6 +248,8 @@ def search(
     category_id: int | None = None,
     creator: str | None = None,
     min_views: int | None = None,
+    min_nodes: int | None = None,
+    max_nodes: int | None = None,
     limit: int = 20,
     sort: str = "rank",
 ) -> list[SearchResult]:
@@ -217,6 +262,12 @@ def search(
         raise ValueError("sort must be 'rank' or 'views'.")
     if limit < 1:
         raise ValueError("limit must be at least 1.")
+    if min_nodes is not None and min_nodes < 0:
+        raise ValueError("min_nodes cannot be negative.")
+    if max_nodes is not None and max_nodes < 0:
+        raise ValueError("max_nodes cannot be negative.")
+    if min_nodes is not None and max_nodes is not None and min_nodes > max_nodes:
+        raise ValueError("min_nodes cannot be greater than max_nodes.")
 
     clauses = ["workflow_fts MATCH ?"]
     parameters: list[Any] = [_fts_query(query, mode)]
@@ -235,6 +286,12 @@ def search(
     if min_views is not None:
         clauses.append("workflow.views >= ?")
         parameters.append(min_views)
+    if min_nodes is not None:
+        clauses.append("workflow.node_count >= ?")
+        parameters.append(min_nodes)
+    if max_nodes is not None:
+        clauses.append("workflow.node_count <= ?")
+        parameters.append(max_nodes)
 
     order_by = "workflow.views DESC, workflow.name COLLATE NOCASE" if sort == "views" else "score, workflow.views DESC"
     sql = f"""

@@ -8,6 +8,7 @@ This repository provides a local, fast search interface for the workflow archive
 ```bash
 uv sync
 uv run n8n-search build
+uv run n8n-search enrich-node-counts
 uv run n8n-search search "postgres slack"
 uv run n8n-search serve
 ```
@@ -16,6 +17,14 @@ The `build` command reads `collection/workflow-map.json` and creates
 `.n8n-search/workflows.sqlite3`. It only indexes map metadata, so building is quick even
 though the archive contains more than 10,000 workflow JSON files. Re-run it whenever the
 map is updated.
+
+`enrich-node-counts` scans every local workflow JSON file, records a `nodeCount`
+on each workflow in the map, and rebuilds the search index. Once enriched, node
+range filters are available in the browser and from the command line:
+
+```bash
+uv run n8n-search search "slack" --min-nodes 5 --max-nodes 20
+```
 
 ## Browser interface
 
