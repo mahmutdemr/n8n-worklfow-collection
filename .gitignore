@@ -1,0 +1,12 @@
+# Source collection and generated search data are local-only.
+collection/
+.n8n-search/
+
+# Python tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# macOS
+.DS_Store

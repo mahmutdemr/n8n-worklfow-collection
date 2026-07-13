@@ -1,0 +1,25 @@
+[project]
+name = "n8n-workflow-search"
+version = "0.1.0"
+description = "Fast local full-text search for an n8n workflow collection"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+n8n-search = "n8n_workflow_search.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/n8n_workflow_search"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
