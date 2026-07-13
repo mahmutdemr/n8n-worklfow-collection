@@ -1,62 +1,63 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#10151d">
-    <title>n8n İş Akışı Bulucu</title>
+    <title>n8n Workflow Finder</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/app.js" defer></script>
   </head>
   <body>
     <main class="shell">
       <header class="hero">
-        <div class="eyebrow"><span class="pulse"></span> Yerel iş akışı koleksiyonu</div>
-        <h1>İhtiyacınız olan<br><em>iş akışını bulun.</em></h1>
-        <p class="lede">n8n iş akışı arşivinizde ada, kategoriye, oluşturana ve popülerliğe göre arayın.</p>
-        <p class="index-status" id="index-status" aria-live="polite">Arama indeksi kontrol ediliyor…</p>
+        <div class="eyebrow"><span class="pulse"></span> Local workflow collection</div>
+        <p class="lede">Search your n8n workflow archive by name, category, creator, and popularity.</p>
+        <p class="index-status" id="index-status" aria-live="polite">Checking search index…</p>
       </header>
 
-      <section class="search-panel" aria-label="İş akışı arama">
+      <section class="search-panel" aria-label="Workflow search">
         <form id="search-form">
           <label class="query-field" for="query">
             <span class="search-mark" aria-hidden="true">⌕</span>
-            <input id="query" name="q" type="search" placeholder="“Slack onayı”, “Postgres”, “OpenAI” gibi arayın…" autocomplete="off" autofocus>
+            <input id="query" name="q" type="search" placeholder="Try “Slack approval”, “Postgres”, “OpenAI”…" autocomplete="off" autofocus>
             <kbd>/</kbd>
           </label>
 
           <div class="controls">
-            <label>Eşleşme
+            <label>Match
               <select name="mode">
-                <option value="all">tüm kelimeler</option>
-                <option value="any">herhangi bir kelime</option>
+                <option value="all">all words</option>
+                <option value="any">any word</option>
               </select>
             </label>
-            <label>Kategori
-              <input name="category" type="text" placeholder="Örn. Engineering">
+            <label>Category
+              <select name="category_id" id="category">
+                <option value="">All categories</option>
+              </select>
             </label>
-            <label>Oluşturan
-              <input name="creator" type="text" placeholder="Ad veya kullanıcı adı">
+            <label>Creator
+              <input name="creator" type="text" placeholder="Name or username">
             </label>
-            <label>Min. görüntüleme
+            <label>Min. views
               <input name="min_views" type="number" min="0" inputmode="numeric" placeholder="0">
             </label>
-            <label>Sırala
+            <label>Sort by
               <select name="sort">
-                <option value="rank">ilgi düzeyi</option>
-                <option value="views">en çok görüntülenen</option>
+                <option value="rank">relevance</option>
+                <option value="views">most viewed</option>
               </select>
             </label>
-            <button class="clear" type="button" id="clear">Temizle</button>
-            <button class="submit" type="submit">Ara <span aria-hidden="true">↗</span></button>
+            <button class="clear" type="button" id="clear">Clear</button>
+            <button class="submit" type="submit">Search <span aria-hidden="true">↗</span></button>
           </div>
         </form>
       </section>
 
       <section class="results" aria-live="polite" aria-busy="false">
         <div class="results-heading">
-          <p id="result-summary">Koleksiyonu keşfetmek için bir arama girin.</p>
-          <span id="loading" hidden>Aranıyor…</span>
+          <p id="result-summary">Enter a search to explore the collection.</p>
+          <span id="loading" hidden>Searching…</span>
         </div>
         <div id="result-list" class="result-list"></div>
       </section>
@@ -71,8 +72,8 @@
         <p class="meta"></p>
         <div class="chips"></div>
         <div class="result-actions">
-          <a class="gallery" target="_blank" rel="noreferrer">n8n’de aç <span aria-hidden="true">↗</span></a>
-          <button class="copy-path" type="button">Yerel yolu kopyala</button>
+          <a class="gallery" target="_blank" rel="noreferrer">Open in n8n <span aria-hidden="true">↗</span></a>
+          <button class="copy-path" type="button">Copy local path</button>
         </div>
       </article>
     </template>

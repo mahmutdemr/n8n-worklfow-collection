@@ -29,6 +29,19 @@ class SearchResult:
     score: float | None = None
 
 
+@dataclass(frozen=True)
+class Category:
+    id: int
+    name: str
+    display_name: str | None
+    parent_name: str | None
+    workflow_count: int
+
+    @property
+    def label(self) -> str:
+        return self.display_name or self.name
+
+
 def _connect(index_path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(index_path)
     connection.row_factory = sqlite3.Row
@@ -93,6 +106,17 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     content='workflow', content_rowid='id',
                     tokenize='unicode61 remove_diacritics 2'
                 );
+                CREATE TABLE category (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    display_name TEXT,
+                    parent_name TEXT
+                );
+                CREATE TABLE workflow_category (
+                    workflow_id INTEGER NOT NULL REFERENCES workflow(id),
+                    category_id INTEGER NOT NULL REFERENCES category(id),
+                    PRIMARY KEY (workflow_id, category_id)
+                );
                 CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 """
             )
@@ -120,6 +144,30 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
+            )
+            category_rows = []
+            for category in payload.get("categories", []):
+                parent = category.get("parent") or {}
+                category_rows.append(
+                    (
+                        int(category["id"]),
+                        str(category.get("name") or ""),
+                        category.get("displayName"),
+                        parent.get("name"),
+                    )
+                )
+            connection.executemany(
+                "INSERT INTO category (id, name, display_name, parent_name) VALUES (?, ?, ?, ?)",
+                category_rows,
+            )
+            workflow_categories = {
+                (int(workflow["id"]), int(category["id"]))
+                for workflow in workflows
+                for category in workflow.get("categories") or []
+                if category.get("id") is not None
+            }
+            connection.executemany(
+                "INSERT INTO workflow_category (workflow_id, category_id) VALUES (?, ?)", workflow_categories
             )
             connection.execute("INSERT INTO workflow_fts(workflow_fts) VALUES ('rebuild')")
             metadata = {
@@ -154,6 +202,7 @@ def search(
     index_path: Path = DEFAULT_INDEX_PATH,
     mode: str = "all",
     category: str | None = None,
+    category_id: int | None = None,
     creator: str | None = None,
     min_views: int | None = None,
     limit: int = 20,
@@ -174,6 +223,12 @@ def search(
     if category:
         clauses.append("workflow.categories LIKE ? COLLATE NOCASE")
         parameters.append(f"%{category}%")
+    if category_id is not None:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM workflow_category WHERE workflow_category.workflow_id = workflow.id "
+            "AND workflow_category.category_id = ?)"
+        )
+        parameters.append(category_id)
     if creator:
         clauses.append("(workflow.creator_name LIKE ? COLLATE NOCASE OR workflow.creator_username LIKE ? COLLATE NOCASE)")
         parameters.extend((f"%{creator}%", f"%{creator}%"))
@@ -203,6 +258,24 @@ def get_stats(index_path: Path = DEFAULT_INDEX_PATH) -> dict[str, str]:
         values = connection.execute("SELECT key, value FROM metadata ORDER BY key").fetchall()
         count = connection.execute("SELECT COUNT(*) FROM workflow").fetchone()[0]
     return {"indexed_workflows": str(count), **{row["key"]: row["value"] for row in values}}
+
+
+def get_categories(index_path: Path = DEFAULT_INDEX_PATH) -> list[Category]:
+    """Return every map category and its direct workflow membership count."""
+    if not index_path.is_file():
+        raise FileNotFoundError(f"Search index was not found: {index_path}. Run 'n8n-search build' first.")
+    with _connect(index_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT category.id, category.name, category.display_name, category.parent_name,
+                   COUNT(workflow_category.workflow_id) AS workflow_count
+            FROM category
+            LEFT JOIN workflow_category ON workflow_category.category_id = category.id
+            GROUP BY category.id
+            ORDER BY workflow_count DESC, COALESCE(category.display_name, category.name) COLLATE NOCASE
+            """
+        ).fetchall()
+    return [Category(**dict(row)) for row in rows]
 
 
 def resolved_local_file(result: SearchResult, map_path: Path = DEFAULT_MAP_PATH) -> Path:

@@ -4,11 +4,12 @@ const resultList = document.querySelector("#result-list");
 const resultSummary = document.querySelector("#result-summary");
 const loading = document.querySelector("#loading");
 const status = document.querySelector("#index-status");
+const category = document.querySelector("#category");
 const template = document.querySelector("#result-template");
 const resultsSection = document.querySelector(".results");
 
-const compactNumber = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-const fullNumber = new Intl.NumberFormat();
+const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+const fullNumber = new Intl.NumberFormat("en-US");
 
 function createChip(text) {
   const chip = document.createElement("span");
@@ -20,17 +21,17 @@ function createChip(text) {
 function renderResults(results) {
   resultList.replaceChildren();
   if (!results.length) {
-    resultSummary.textContent = "Eşleşen iş akışı yok. Daha az kelimeyle arayın veya filtreleri temizleyin.";
+    resultSummary.textContent = "No workflows matched. Try fewer words or clear a filter.";
     return;
   }
-  resultSummary.textContent = `${fullNumber.format(results.length)} eşleşen iş akışı`;
+  resultSummary.textContent = `${fullNumber.format(results.length)} matching workflow${results.length === 1 ? "" : "s"}`;
   const fragment = document.createDocumentFragment();
   for (const workflow of results) {
     const card = template.content.cloneNode(true);
     card.querySelector(".workflow-id").textContent = `#${workflow.id}`;
-    card.querySelector(".views").textContent = `${compactNumber.format(workflow.views)} görüntüleme`;
+    card.querySelector(".views").textContent = `${compactNumber.format(workflow.views)} views`;
     card.querySelector("h2").textContent = workflow.name;
-    card.querySelector(".meta").textContent = workflow.creator_name || workflow.creator_username || "Bilinmeyen oluşturan";
+    card.querySelector(".meta").textContent = workflow.creator_name || workflow.creator_username || "Unknown creator";
     const chips = card.querySelector(".chips");
     for (const category of workflow.categories.split(", ").filter(Boolean).slice(0, 4)) chips.append(createChip(category));
     const gallery = card.querySelector(".gallery");
@@ -39,8 +40,8 @@ function renderResults(results) {
     copy.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(workflow.local_file);
-        copy.textContent = "Kopyalandı";
-        window.setTimeout(() => { copy.textContent = "Yerel yolu kopyala"; }, 1400);
+        copy.textContent = "Copied";
+        window.setTimeout(() => { copy.textContent = "Copy local path"; }, 1400);
       } catch {
         copy.textContent = workflow.local_file;
       }
@@ -56,7 +57,7 @@ async function submitSearch(event) {
   const term = parameters.get("q").trim();
   if (!term) {
     resultList.replaceChildren();
-    resultSummary.textContent = "Koleksiyonu keşfetmek için bir arama girin.";
+    resultSummary.textContent = "Enter a search to explore the collection.";
     query.focus();
     return;
   }
@@ -65,7 +66,7 @@ async function submitSearch(event) {
   try {
     const response = await fetch(`/api/search?${parameters}`);
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Arama tamamlanamadı.");
+    if (!response.ok) throw new Error(payload.error || "Search could not be completed.");
     renderResults(payload.results);
   } catch (error) {
     resultList.replaceChildren();
@@ -80,7 +81,7 @@ form.addEventListener("submit", submitSearch);
 document.querySelector("#clear").addEventListener("click", () => {
   form.reset();
   resultList.replaceChildren();
-  resultSummary.textContent = "Koleksiyonu keşfetmek için bir arama girin.";
+  resultSummary.textContent = "Enter a search to explore the collection.";
   query.focus();
 });
 document.addEventListener("keydown", (event) => {
@@ -92,5 +93,17 @@ document.addEventListener("keydown", (event) => {
 
 fetch("/api/stats")
   .then((response) => response.json())
-  .then((data) => { status.textContent = `${fullNumber.format(Number(data.indexed_workflows))} iş akışı indekslendi · harita tarihi ${new Date(data.map_generated_at).toLocaleDateString("tr-TR")}`; })
-  .catch(() => { status.textContent = "Arama indeksi kullanılamıyor. İndeksi oluşturup sayfayı yenileyin."; });
+  .then((data) => { status.textContent = `${fullNumber.format(Number(data.indexed_workflows))} workflows indexed · map generated ${new Date(data.map_generated_at).toLocaleDateString("en-US")}`; })
+  .catch(() => { status.textContent = "Search index is unavailable. Build it, then restart this page."; });
+
+fetch("/api/categories")
+  .then((response) => response.json())
+  .then((data) => {
+    for (const item of data.categories) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = `${item.label} (${fullNumber.format(item.workflow_count)})${item.parent_name ? ` · ${item.parent_name}` : ""}`;
+      category.append(option);
+    }
+  })
+  .catch(() => { category.disabled = true; });

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Type
 from urllib.parse import parse_qs, urlparse
 
-from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, get_stats, resolved_local_file, search
+from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, get_categories, get_stats, resolved_local_file, search
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -40,6 +40,22 @@ def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHa
             if request.path == "/api/stats":
                 self._send_json(HTTPStatus.OK, get_stats(index_path))
                 return
+            if request.path == "/api/categories":
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "categories": [
+                            {
+                                "id": category.id,
+                                "label": category.label,
+                                "parent_name": category.parent_name,
+                                "workflow_count": category.workflow_count,
+                            }
+                            for category in get_categories(index_path)
+                        ]
+                    },
+                )
+                return
             if request.path == "/api/search":
                 self._handle_search(parse_qs(request.query))
                 return
@@ -56,6 +72,7 @@ def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHa
                     index_path=index_path,
                     mode=_one(parameters, "mode", "all"),
                     category=_one(parameters, "category").strip() or None,
+                    category_id=_integer(_one(parameters, "category_id"), "Category"),
                     creator=_one(parameters, "creator").strip() or None,
                     min_views=_integer(_one(parameters, "min_views"), "Minimum views"),
                     limit=_integer(_one(parameters, "limit"), "Limit", 30) or 30,

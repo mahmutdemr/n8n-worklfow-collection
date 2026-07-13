@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from n8n_workflow_search.search import build_index, get_stats, search
+from n8n_workflow_search.search import build_index, get_categories, get_stats, search
 from n8n_workflow_search.web import create_handler
 
 
@@ -13,6 +13,10 @@ def _write_map(path: Path) -> None:
             {
                 "schemaVersion": 1,
                 "generatedAt": "2026-07-12T00:00:00Z",
+                "categories": [
+                    {"id": 5, "name": "Engineering", "displayName": None, "parent": {"name": "IT Ops"}, "workflowIds": [1]},
+                    {"id": 27, "name": "Marketing", "displayName": None, "parent": None, "workflowIds": [2]},
+                ],
                 "workflows": [
                     {
                         "id": 1,
@@ -20,7 +24,7 @@ def _write_map(path: Path) -> None:
                         "slug": "send-slack-alerts-postgres",
                         "views": 120,
                         "creator": {"name": "Ada Lovelace", "username": "ada"},
-                        "categories": [{"name": "Engineering", "parent": {"name": "IT Ops"}}],
+                        "categories": [{"id": 5, "name": "Engineering", "parent": {"name": "IT Ops"}}],
                         "galleryUrl": "https://example.test/1",
                         "file": "workflows/1.json",
                     },
@@ -30,7 +34,7 @@ def _write_map(path: Path) -> None:
                         "slug": "create-notion-pages",
                         "views": 20,
                         "creator": {"name": "Grace Hopper", "username": "grace"},
-                        "categories": [{"name": "Marketing", "parent": None}],
+                        "categories": [{"id": 27, "name": "Marketing", "parent": None}],
                         "galleryUrl": "https://example.test/2",
                         "file": "workflows/2.json",
                     },
@@ -52,6 +56,7 @@ def test_build_and_search_metadata(tmp_path: Path) -> None:
     assert [result.id for result in results] == [1]
     assert results[0].creator_username == "ada"
     assert get_stats(index_path)["indexed_workflows"] == "2"
+    assert [(category.id, category.workflow_count) for category in get_categories(index_path)] == [(5, 1), (27, 1)]
 
 
 def test_search_any_mode_and_view_sort(tmp_path: Path) -> None:

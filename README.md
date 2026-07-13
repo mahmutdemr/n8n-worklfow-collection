@@ -45,6 +45,7 @@ uv run n8n-search search "postgres" --creator jan
 
 # Print machine-readable results
 uv run n8n-search search "notion" --json
+uv run n8n-search categories
 
 # Inspect index and map information
 uv run n8n-search stats

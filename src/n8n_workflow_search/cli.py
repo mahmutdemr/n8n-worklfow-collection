@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Sequence
 
-from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, build_index, get_stats, resolved_local_file, search
+from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, build_index, get_categories, get_stats, resolved_local_file, search
 from .web import serve
 
 
@@ -31,6 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     query.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
     query.add_argument("--mode", choices=("all", "any"), default="all", help="Require all terms or allow any term")
     query.add_argument("--category", help="Case-insensitive category filter")
+    query.add_argument("--category-id", type=int, help="Exact category id from 'n8n-search categories'")
     query.add_argument("--creator", help="Case-insensitive creator name or username filter")
     query.add_argument("--min-views", type=int, help="Minimum n8n gallery views")
     query.add_argument("--limit", type=int, default=20, help="Maximum results (default: 20)")
@@ -39,6 +40,10 @@ def _parser() -> argparse.ArgumentParser:
 
     stats = subcommands.add_parser("stats", help="Show index metadata.")
     stats.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
+
+    categories = subcommands.add_parser("categories", help="List map categories and workflow usage counts.")
+    categories.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
+    categories.add_argument("--json", action="store_true", help="Print JSON instead of a readable list")
 
     web = subcommands.add_parser("serve", help="Open the local browser search interface.")
     web.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path used to resolve local files")
@@ -73,6 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 index_path=args.index,
                 mode=args.mode,
                 category=args.category,
+                category_id=args.category_id,
                 creator=args.creator,
                 min_views=args.min_views,
                 limit=args.limit,
@@ -85,6 +91,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "stats":
             for key, value in get_stats(args.index).items():
                 print(f"{key}: {value}")
+        elif args.command == "categories":
+            categories = get_categories(args.index)
+            if args.json:
+                print(
+                    json.dumps(
+                        [
+                            {
+                                "id": category.id,
+                                "label": category.label,
+                                "parent_name": category.parent_name,
+                                "workflow_count": category.workflow_count,
+                            }
+                            for category in categories
+                        ],
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            else:
+                for category in categories:
+                    parent = f" · {category.parent_name}" if category.parent_name else ""
+                    print(f"[{category.id}] {category.label}: {category.workflow_count:,}{parent}")
         elif args.command == "serve":
             serve(index_path=args.index, map_path=args.file, host=args.host, port=args.port)
     except (FileNotFoundError, ValueError, OSError) as error:
