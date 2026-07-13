@@ -12,7 +12,9 @@ from typing import Sequence
 from .search import (
     DEFAULT_INDEX_PATH,
     DEFAULT_MAP_PATH,
+    DEFAULT_V2_MAP_PATH,
     build_index,
+    enrich_metadata,
     enrich_node_counts,
     get_categories,
     get_stats,
@@ -38,6 +40,11 @@ def _parser() -> argparse.ArgumentParser:
     enrich.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path")
     enrich.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
 
+    metadata = subcommands.add_parser("enrich-metadata", help="Merge detailed metadata from workflow-map-v2.json.")
+    metadata.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="primary workflow map path")
+    metadata.add_argument("--source", type=_path, default=DEFAULT_V2_MAP_PATH, help="detailed v2 map path")
+    metadata.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
+
     query = subcommands.add_parser("search", help="Search workflow metadata.")
     query.add_argument("query", help="Words to search for")
     query.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path used to resolve local files")
@@ -50,7 +57,7 @@ def _parser() -> argparse.ArgumentParser:
     query.add_argument("--min-nodes", type=int, help="Minimum workflow node count")
     query.add_argument("--max-nodes", type=int, help="Maximum workflow node count")
     query.add_argument("--limit", type=int, default=20, help="Maximum results (default: 20)")
-    query.add_argument("--sort", choices=("rank", "views"), default="rank", help="Order by full-text rank or views")
+    query.add_argument("--sort", choices=("rank", "views", "nodes"), default="rank", help="Order by full-text rank, views, or nodes")
     query.add_argument("--json", action="store_true", help="Print JSON instead of a readable list")
 
     stats = subcommands.add_parser("stats", help="Show index metadata.")
@@ -91,6 +98,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             workflow_count, total_nodes = enrich_node_counts(args.file)
             build_index(args.file, args.index)
             print(f"Added nodeCount for {workflow_count:,} workflows ({total_nodes:,} total nodes) and rebuilt {args.index}.")
+        elif args.command == "enrich-metadata":
+            workflow_count = enrich_metadata(args.file, args.source)
+            build_index(args.file, args.index)
+            print(f"Merged v2 metadata for {workflow_count:,} workflows and rebuilt {args.index}.")
         elif args.command == "search":
             results = search(
                 args.query,

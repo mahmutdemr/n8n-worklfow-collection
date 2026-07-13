@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import sqlite3
 import tempfile
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 DEFAULT_MAP_PATH = Path("collection/workflow-map.json")
+DEFAULT_V2_MAP_PATH = Path("collection/workflow-map-v2.json")
 DEFAULT_INDEX_PATH = Path(".n8n-search/workflows.sqlite3")
 
 
@@ -23,6 +23,10 @@ class SearchResult:
     slug: str
     views: int
     node_count: int
+    description: str
+    created_at: str
+    updated_at: str
+    last_seen_at: str
     creator_name: str
     creator_username: str
     categories: str
@@ -75,6 +79,20 @@ def _load_workflows(map_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]
     return payload, workflows
 
 
+def _write_map_atomic(payload: dict[str, Any], map_path: Path) -> None:
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", prefix=f".{map_path.name}.", suffix=".tmp", dir=map_path.parent, delete=False
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+        json.dump(payload, temporary, ensure_ascii=False, indent=2)
+        temporary.write("\n")
+    try:
+        temporary_path.replace(map_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
 def enrich_node_counts(map_path: Path = DEFAULT_MAP_PATH) -> tuple[int, int]:
     """Scan every local workflow and record its node count in the workflow map.
 
@@ -100,18 +118,56 @@ def enrich_node_counts(map_path: Path = DEFAULT_MAP_PATH) -> tuple[int, int]:
 
     payload["schemaVersion"] = max(int(payload.get("schemaVersion", 1)), 2)
     payload["nodeCountGeneratedAt"] = datetime.now(UTC).isoformat()
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", prefix=f".{map_path.name}.", suffix=".tmp", dir=map_path.parent, delete=False
-    ) as temporary:
-        temporary_path = Path(temporary.name)
-        json.dump(payload, temporary, ensure_ascii=False, indent=2)
-        temporary.write("\n")
-    try:
-        temporary_path.replace(map_path)
-    except BaseException:
-        temporary_path.unlink(missing_ok=True)
-        raise
+    _write_map_atomic(payload, map_path)
     return len(workflows), total_nodes
+
+
+def enrich_metadata(
+    map_path: Path = DEFAULT_MAP_PATH, source_path: Path = DEFAULT_V2_MAP_PATH
+) -> int:
+    """Merge the detailed v2 metadata map into the primary map by workflow id.
+
+    Locally calculated fields such as ``nodeCount`` are retained. The operation
+    is atomic and refuses a partial merge when either map has unmatched ids.
+    """
+    payload, workflows = _load_workflows(map_path)
+    source_payload, source_workflows = _load_workflows(source_path)
+    current_by_id = {workflow["id"]: workflow for workflow in workflows}
+    source_by_id = {workflow["id"]: workflow for workflow in source_workflows}
+    if len(current_by_id) != len(workflows) or len(source_by_id) != len(source_workflows):
+        raise ValueError("Workflow ids must be unique in both maps.")
+    if current_by_id.keys() != source_by_id.keys():
+        missing_in_source = len(current_by_id.keys() - source_by_id.keys())
+        missing_in_target = len(source_by_id.keys() - current_by_id.keys())
+        raise ValueError(
+            f"Maps do not contain the same workflow ids ({missing_in_source} missing in source, "
+            f"{missing_in_target} missing in target)."
+        )
+
+    for workflow_id, target in current_by_id.items():
+        node_count = target.get("nodeCount")
+        target.update(source_by_id[workflow_id])
+        if node_count is not None:
+            target["nodeCount"] = node_count
+        popularity = target.get("popularity") or {}
+        if isinstance(popularity.get("views"), int):
+            target["views"] = popularity["views"]
+
+    for key in (
+        "generatedAt",
+        "archiveWorkflowCount",
+        "unavailableWorkflowCount",
+        "categories",
+        "uncategorizedWorkflowIds",
+        "unavailableWorkflows",
+    ):
+        if key in source_payload:
+            payload[key] = source_payload[key]
+    payload["schemaVersion"] = max(int(payload.get("schemaVersion", 1)), int(source_payload.get("schemaVersion", 1)), 3)
+    payload["metadataEnrichedAt"] = datetime.now(UTC).isoformat()
+    payload["metadataSource"] = str(source_path)
+    _write_map_atomic(payload, map_path)
+    return len(workflows)
 
 
 def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_INDEX_PATH) -> int:
@@ -137,6 +193,10 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     slug TEXT NOT NULL,
                     views INTEGER NOT NULL,
                     node_count INTEGER NOT NULL,
+                    description TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
                     creator_name TEXT NOT NULL,
                     creator_username TEXT NOT NULL,
                     categories TEXT NOT NULL,
@@ -144,7 +204,7 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     file TEXT NOT NULL
                 );
                 CREATE VIRTUAL TABLE workflow_fts USING fts5(
-                    name, slug, creator_name, creator_username, categories,
+                    name, slug, creator_name, creator_username, categories, description,
                     content='workflow', content_rowid='id',
                     tokenize='unicode61 remove_diacritics 2'
                 );
@@ -173,6 +233,10 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                         str(workflow.get("slug") or ""),
                         int(workflow.get("views") or 0),
                         int(workflow.get("nodeCount") or 0),
+                        str(workflow.get("description") or ""),
+                        str(workflow.get("createdAt") or ""),
+                        str(workflow.get("updatedAt") or ""),
+                        str(workflow.get("lastSeenAt") or ""),
                         str(creator.get("name") or ""),
                         str(creator.get("username") or ""),
                         _category_text(workflow.get("categories") or []),
@@ -183,8 +247,9 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
             connection.executemany(
                 """
                 INSERT INTO workflow (
-                    id, name, slug, views, node_count, creator_name, creator_username, categories, gallery_url, file
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, name, slug, views, node_count, description, created_at, updated_at, last_seen_at,
+                    creator_name, creator_username, categories, gallery_url, file
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -258,8 +323,8 @@ def search(
         raise FileNotFoundError(f"Search index was not found: {index_path}. Run 'n8n-search build' first.")
     if mode not in {"all", "any"}:
         raise ValueError("mode must be 'all' or 'any'.")
-    if sort not in {"rank", "views"}:
-        raise ValueError("sort must be 'rank' or 'views'.")
+    if sort not in {"rank", "views", "nodes"}:
+        raise ValueError("sort must be 'rank', 'views', or 'nodes'.")
     if limit < 1:
         raise ValueError("limit must be at least 1.")
     if min_nodes is not None and min_nodes < 0:
@@ -293,9 +358,13 @@ def search(
         clauses.append("workflow.node_count <= ?")
         parameters.append(max_nodes)
 
-    order_by = "workflow.views DESC, workflow.name COLLATE NOCASE" if sort == "views" else "score, workflow.views DESC"
+    order_by = {
+        "rank": "score, workflow.views DESC",
+        "views": "workflow.views DESC, workflow.node_count DESC, workflow.name COLLATE NOCASE",
+        "nodes": "workflow.node_count DESC, workflow.views DESC, workflow.name COLLATE NOCASE",
+    }[sort]
     sql = f"""
-        SELECT workflow.*, bm25(workflow_fts, 10.0, 4.0, 2.0, 2.0, 1.0) AS score
+        SELECT workflow.*, bm25(workflow_fts, 10.0, 4.0, 2.0, 2.0, 1.0, 2.0) AS score
         FROM workflow_fts
         JOIN workflow ON workflow_fts.rowid = workflow.id
         WHERE {' AND '.join(clauses)}

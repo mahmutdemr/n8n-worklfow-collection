@@ -9,6 +9,7 @@ This repository provides a local, fast search interface for the workflow archive
 uv sync
 uv run n8n-search build
 uv run n8n-search enrich-node-counts
+uv run n8n-search enrich-metadata
 uv run n8n-search search "postgres slack"
 uv run n8n-search serve
 ```
@@ -25,6 +26,11 @@ range filters are available in the browser and from the command line:
 ```bash
 uv run n8n-search search "slack" --min-nodes 5 --max-nodes 20
 ```
+
+`enrich-metadata` merges the detailed `collection/workflow-map-v2.json` data
+into the primary map by workflow id. It preserves `nodeCount`, copies the v2
+timestamps, popularity, and expanded creator metadata, then rebuilds the index.
+Descriptions are included in full-text search when present.
 
 ## Browser interface
 
