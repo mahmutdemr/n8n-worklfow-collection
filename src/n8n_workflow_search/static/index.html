@@ -49,6 +49,13 @@
                 <input name="max_nodes" type="number" min="0" inputmode="numeric" placeholder="Max">
               </span>
             </label>
+            <label>Node availability
+              <select name="default_compatible">
+                <option value="">all workflows</option>
+                <option value="true">default nodes only</option>
+                <option value="false">needs unavailable nodes</option>
+              </select>
+            </label>
             <label>Created
               <select name="created_within" id="created-within">
                 <option value="">all time</option>
@@ -91,6 +98,7 @@
         </div>
         <h2></h2>
         <p class="meta"></p>
+        <span class="compatibility"></span>
         <div class="chips"></div>
         <div class="result-actions">
           <a class="gallery" target="_blank" rel="noreferrer">Open in n8n <span aria-hidden="true">↗</span></a>

@@ -10,6 +10,7 @@ uv sync
 uv run n8n-search build
 uv run n8n-search enrich-node-counts
 uv run n8n-search enrich-metadata
+uv run n8n-search enrich-default-node-compatibility
 uv run n8n-search search "postgres slack"
 uv run n8n-search serve
 ```
@@ -32,6 +33,15 @@ uv run n8n-search search --created-after 2025-07-13 --sort nodes
 into the primary map by workflow id. It preserves `nodeCount`, copies the v2
 timestamps, popularity, and expanded creator metadata, then rebuilds the index.
 Descriptions are included in full-text search when present.
+
+`enrich-default-node-compatibility` compares each workflow's node types with
+`collection/n8n-nodes.json`. It adds default-catalog compatibility, missing node
+types, and package summaries to the map, then rebuilds the index:
+
+```bash
+uv run n8n-search search --default-compatible
+uv run n8n-search search --no-default-compatible --min-missing-node-types 2
+```
 
 ## Browser interface
 

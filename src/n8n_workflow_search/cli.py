@@ -12,8 +12,10 @@ from typing import Sequence
 from .search import (
     DEFAULT_INDEX_PATH,
     DEFAULT_MAP_PATH,
+    DEFAULT_NODE_CATALOG_PATH,
     DEFAULT_V2_MAP_PATH,
     build_index,
+    enrich_default_node_compatibility,
     enrich_metadata,
     enrich_node_counts,
     get_categories,
@@ -45,6 +47,13 @@ def _parser() -> argparse.ArgumentParser:
     metadata.add_argument("--source", type=_path, default=DEFAULT_V2_MAP_PATH, help="detailed v2 map path")
     metadata.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
 
+    compatibility = subcommands.add_parser(
+        "enrich-default-node-compatibility", help="Tag workflows against the installed default node catalog."
+    )
+    compatibility.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="primary workflow map path")
+    compatibility.add_argument("--catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH, help="installed node catalog path")
+    compatibility.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
+
     query = subcommands.add_parser("search", help="Search workflow metadata.")
     query.add_argument("query", nargs="?", default="", help="Optional words to search for")
     query.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path used to resolve local files")
@@ -56,6 +65,11 @@ def _parser() -> argparse.ArgumentParser:
     query.add_argument("--min-views", type=int, help="Minimum n8n gallery views")
     query.add_argument("--min-nodes", type=int, help="Minimum workflow node count")
     query.add_argument("--max-nodes", type=int, help="Maximum workflow node count")
+    query.add_argument(
+        "--default-compatible", action=argparse.BooleanOptionalAction, default=None,
+        help="Require only installed-default nodes, or use --no-default-compatible for unavailable nodes",
+    )
+    query.add_argument("--min-missing-node-types", type=int, help="Minimum unavailable node-type count")
     query.add_argument("--created-after", help="Only workflows created on or after this ISO date (YYYY-MM-DD)")
     query.add_argument("--created-before", help="Only workflows created on or before this ISO date (YYYY-MM-DD)")
     query.add_argument("--limit", type=int, default=20, help="Maximum results (default: 20)")
@@ -104,6 +118,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             workflow_count = enrich_metadata(args.file, args.source)
             build_index(args.file, args.index)
             print(f"Merged v2 metadata for {workflow_count:,} workflows and rebuilt {args.index}.")
+        elif args.command == "enrich-default-node-compatibility":
+            summary = enrich_default_node_compatibility(args.file, args.catalog)
+            build_index(args.file, args.index)
+            print(
+                f"Tagged {summary.workflows:,} workflows: {summary.compatible_workflows:,} use only installed default nodes; "
+                f"{summary.unavailable_node_types:,} unavailable node types found."
+            )
         elif args.command == "search":
             results = search(
                 args.query,
@@ -115,6 +136,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 min_views=args.min_views,
                 min_nodes=args.min_nodes,
                 max_nodes=args.max_nodes,
+                default_compatible=args.default_compatible,
+                min_missing_node_types=args.min_missing_node_types,
                 created_after=args.created_after,
                 created_before=args.created_before,
                 limit=args.limit,

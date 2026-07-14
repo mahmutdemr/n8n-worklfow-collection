@@ -42,6 +42,18 @@ function renderResults(results, total, offset, limit) {
     card.querySelector(".views").textContent = `${workflow.node_count} nodes · ${compactNumber.format(workflow.views)} views`;
     card.querySelector("h2").textContent = workflow.name;
     card.querySelector(".meta").textContent = workflow.creator_name || workflow.creator_username || "Unknown creator";
+    const compatibility = card.querySelector(".compatibility");
+    if (workflow.default_compatible === 1) {
+      compatibility.textContent = "Default nodes";
+      compatibility.classList.add("compatible");
+    } else if (workflow.default_compatible === 0) {
+      const count = workflow.missing_node_type_count;
+      compatibility.textContent = `Needs ${count} unavailable node type${count === 1 ? "" : "s"}`;
+      compatibility.title = JSON.parse(workflow.missing_node_types).join("\n");
+      compatibility.classList.add("incompatible");
+    } else {
+      compatibility.hidden = true;
+    }
     const chips = card.querySelector(".chips");
     for (const category of workflow.categories.split(", ").filter(Boolean).slice(0, 4)) chips.append(createChip(category));
     const gallery = card.querySelector(".gallery");

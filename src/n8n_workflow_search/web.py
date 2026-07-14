@@ -28,6 +28,16 @@ def _integer(value: str, name: str, default: int | None = None) -> int | None:
         raise ValueError(f"{name} must be a whole number.") from error
 
 
+def _boolean(value: str, name: str) -> bool | None:
+    if not value:
+        return None
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"{name} must be true or false.")
+
+
 def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHandler]:
     """Create a request handler bound to one local index and collection map."""
 
@@ -73,6 +83,10 @@ def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHa
                     min_views=_integer(_one(parameters, "min_views"), "Minimum views"),
                     min_nodes=_integer(_one(parameters, "min_nodes"), "Minimum nodes"),
                     max_nodes=_integer(_one(parameters, "max_nodes"), "Maximum nodes"),
+                    default_compatible=_boolean(_one(parameters, "default_compatible"), "Default compatibility"),
+                    min_missing_node_types=_integer(
+                        _one(parameters, "min_missing_node_types"), "Minimum missing node types"
+                    ),
                     created_after=_one(parameters, "created_after").strip() or None,
                     created_before=_one(parameters, "created_before").strip() or None,
                     limit=_integer(_one(parameters, "limit"), "Limit", 30) or 30,

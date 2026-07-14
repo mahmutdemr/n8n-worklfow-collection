@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 import tempfile
@@ -13,6 +14,7 @@ from typing import Any, Iterable
 
 DEFAULT_MAP_PATH = Path("collection/workflow-map.json")
 DEFAULT_V2_MAP_PATH = Path("collection/workflow-map-v2.json")
+DEFAULT_NODE_CATALOG_PATH = Path("collection/n8n-nodes.json")
 DEFAULT_INDEX_PATH = Path(".n8n-search/workflows.sqlite3")
 
 
@@ -27,6 +29,11 @@ class SearchResult:
     created_at: str
     updated_at: str
     last_seen_at: str
+    default_compatible: int | None
+    missing_node_type_count: int
+    missing_node_instance_count: int
+    missing_node_types: str
+    missing_node_packages: str
     creator_name: str
     creator_username: str
     categories: str
@@ -54,6 +61,13 @@ class SearchPage:
     total: int
     offset: int
     limit: int
+
+
+@dataclass(frozen=True)
+class CompatibilitySummary:
+    workflows: int
+    compatible_workflows: int
+    unavailable_node_types: int
 
 
 def _connect(index_path: Path) -> sqlite3.Connection:
@@ -178,6 +192,74 @@ def enrich_metadata(
     return len(workflows)
 
 
+def _node_package_name(node_type: str) -> str:
+    """Extract the package portion from an n8n node type identifier."""
+    if node_type.startswith("@"):
+        scope, _, remainder = node_type.partition("/")
+        package, _, _ = remainder.partition(".")
+        return f"{scope}/{package}" if package else node_type
+    return node_type.partition(".")[0]
+
+
+def enrich_default_node_compatibility(
+    map_path: Path = DEFAULT_MAP_PATH, node_catalog_path: Path = DEFAULT_NODE_CATALOG_PATH
+) -> CompatibilitySummary:
+    """Tag every workflow against the node types installed in a default catalog."""
+    payload, workflows = _load_workflows(map_path)
+    try:
+        catalog_bytes = node_catalog_path.read_bytes()
+        catalog = json.loads(catalog_bytes)
+    except FileNotFoundError as error:
+        raise FileNotFoundError(f"Node catalog was not found: {node_catalog_path}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Node catalog is not valid JSON: {node_catalog_path} ({error})") from error
+    if not isinstance(catalog, list):
+        raise ValueError("Node catalog must be a JSON list.")
+    available_types = {item.get("name") for item in catalog if isinstance(item, dict) and item.get("name")}
+    if not available_types:
+        raise ValueError("Node catalog does not contain any node names.")
+
+    compatible_workflows = 0
+    unavailable_types: set[str] = set()
+    for workflow in workflows:
+        workflow_path = map_path.parent / str(workflow["file"])
+        try:
+            with workflow_path.open(encoding="utf-8") as source:
+                workflow_json = json.load(source)
+        except FileNotFoundError as error:
+            raise FileNotFoundError(f"Workflow file was not found: {workflow_path}") from error
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Workflow file is not valid JSON: {workflow_path} ({error})") from error
+        nodes = workflow_json.get("nodes") if isinstance(workflow_json, dict) else None
+        if not isinstance(nodes, list):
+            raise ValueError(f"Workflow has no 'nodes' list: {workflow_path}")
+        node_types = [node.get("type") for node in nodes if isinstance(node, dict) and node.get("type")]
+        missing_types = sorted(set(node_types) - available_types)
+        missing_type_set = set(missing_types)
+        missing_instance_count = sum(node_type in missing_type_set for node_type in node_types)
+        compatible = not missing_types
+        if compatible:
+            compatible_workflows += 1
+        unavailable_types.update(missing_types)
+        workflow["defaultNodeCompatibility"] = {
+            "usesOnlyInstalledDefaultNodes": compatible,
+            "missingNodeTypeCount": len(missing_types),
+            "missingNodeInstanceCount": missing_instance_count,
+            "missingNodeTypes": missing_types,
+            "missingNodePackages": sorted({_node_package_name(node_type) for node_type in missing_types}),
+        }
+
+    payload["schemaVersion"] = max(int(payload.get("schemaVersion", 1)), 4)
+    payload["defaultNodeCatalog"] = {
+        "path": str(node_catalog_path),
+        "nodeTypeCount": len(available_types),
+        "sha256": hashlib.sha256(catalog_bytes).hexdigest(),
+        "checkedAt": datetime.now(UTC).isoformat(),
+    }
+    _write_map_atomic(payload, map_path)
+    return CompatibilitySummary(len(workflows), compatible_workflows, len(unavailable_types))
+
+
 def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_INDEX_PATH) -> int:
     """Build a new index atomically and return the number of indexed workflows."""
     payload, workflows = _load_workflows(map_path)
@@ -205,6 +287,11 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     last_seen_at TEXT NOT NULL,
+                    default_compatible INTEGER,
+                    missing_node_type_count INTEGER NOT NULL,
+                    missing_node_instance_count INTEGER NOT NULL,
+                    missing_node_types TEXT NOT NULL,
+                    missing_node_packages TEXT NOT NULL,
                     creator_name TEXT NOT NULL,
                     creator_username TEXT NOT NULL,
                     categories TEXT NOT NULL,
@@ -212,7 +299,7 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     file TEXT NOT NULL
                 );
                 CREATE VIRTUAL TABLE workflow_fts USING fts5(
-                    name, slug, creator_name, creator_username, categories, description,
+                    name, slug, creator_name, creator_username, categories, description, missing_node_types, missing_node_packages,
                     content='workflow', content_rowid='id',
                     tokenize='unicode61 remove_diacritics 2'
                 );
@@ -234,6 +321,8 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
             rows = []
             for workflow in workflows:
                 creator = workflow.get("creator") or {}
+                compatibility = workflow.get("defaultNodeCompatibility") or {}
+                compatible = compatibility.get("usesOnlyInstalledDefaultNodes")
                 rows.append(
                     (
                         workflow["id"],
@@ -245,6 +334,11 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                         str(workflow.get("createdAt") or ""),
                         str(workflow.get("updatedAt") or ""),
                         str(workflow.get("lastSeenAt") or ""),
+                        int(compatible) if isinstance(compatible, bool) else None,
+                        int(compatibility.get("missingNodeTypeCount") or 0),
+                        int(compatibility.get("missingNodeInstanceCount") or 0),
+                        json.dumps(compatibility.get("missingNodeTypes") or []),
+                        json.dumps(compatibility.get("missingNodePackages") or []),
                         str(creator.get("name") or ""),
                         str(creator.get("username") or ""),
                         _category_text(workflow.get("categories") or []),
@@ -256,8 +350,9 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                 """
                 INSERT INTO workflow (
                     id, name, slug, views, node_count, description, created_at, updated_at, last_seen_at,
-                    creator_name, creator_username, categories, gallery_url, file
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    default_compatible, missing_node_type_count, missing_node_instance_count,
+                    missing_node_types, missing_node_packages, creator_name, creator_username, categories, gallery_url, file
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -340,6 +435,8 @@ def search_page(
     min_views: int | None = None,
     min_nodes: int | None = None,
     max_nodes: int | None = None,
+    default_compatible: bool | None = None,
+    min_missing_node_types: int | None = None,
     created_after: str | None = None,
     created_before: str | None = None,
     limit: int = 20,
@@ -363,6 +460,8 @@ def search_page(
         raise ValueError("max_nodes cannot be negative.")
     if min_nodes is not None and max_nodes is not None and min_nodes > max_nodes:
         raise ValueError("min_nodes cannot be greater than max_nodes.")
+    if min_missing_node_types is not None and min_missing_node_types < 0:
+        raise ValueError("min_missing_node_types cannot be negative.")
 
     text_query = (query or "").strip()
     has_text_query = bool(text_query)
@@ -392,6 +491,12 @@ def search_page(
     if max_nodes is not None:
         clauses.append("workflow.node_count <= ?")
         parameters.append(max_nodes)
+    if default_compatible is not None:
+        clauses.append("workflow.default_compatible = ?")
+        parameters.append(int(default_compatible))
+    if min_missing_node_types is not None:
+        clauses.append("workflow.missing_node_type_count >= ?")
+        parameters.append(min_missing_node_types)
     after_bound, _ = _date_bound(created_after, "created_after")
     before_bound, before_is_date = _date_bound(created_before, "created_before", end=True)
     if after_bound:
@@ -407,7 +512,7 @@ def search_page(
         "nodes": "workflow.node_count DESC, workflow.views DESC, workflow.name COLLATE NOCASE",
     }[sort]
     source = "workflow_fts JOIN workflow ON workflow_fts.rowid = workflow.id" if has_text_query else "workflow"
-    score = "bm25(workflow_fts, 10.0, 4.0, 2.0, 2.0, 1.0, 2.0)" if has_text_query else "NULL"
+    score = "bm25(workflow_fts, 10.0, 4.0, 2.0, 2.0, 1.0, 2.0, 1.0, 1.0)" if has_text_query else "NULL"
     where = " AND ".join(clauses) or "1 = 1"
     sql = f"""
         SELECT workflow.*, {score} AS score

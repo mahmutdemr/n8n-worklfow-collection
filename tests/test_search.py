@@ -3,7 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from n8n_workflow_search.search import build_index, enrich_metadata, enrich_node_counts, get_categories, get_stats, search, search_page
+from n8n_workflow_search.search import (
+    build_index,
+    enrich_default_node_compatibility,
+    enrich_metadata,
+    enrich_node_counts,
+    get_categories,
+    get_stats,
+    search,
+    search_page,
+)
 from n8n_workflow_search.web import create_handler
 
 
@@ -125,6 +134,36 @@ def test_v2_metadata_enrichment_preserves_node_count(tmp_path: Path) -> None:
     assert results[0].created_at == "2025-01-02T03:04:05Z"
     assert search_page(index_path=index_path, created_after="2025-01-01").total == 2
     assert search_page(index_path=index_path, created_after="2025-02-01").total == 0
+
+
+def test_default_node_compatibility_tags_and_filters(tmp_path: Path) -> None:
+    map_path = tmp_path / "workflow-map.json"
+    catalog_path = tmp_path / "n8n-nodes.json"
+    index_path = tmp_path / "workflows.sqlite3"
+    workflow_directory = tmp_path / "workflows"
+    workflow_directory.mkdir()
+    _write_map(map_path)
+    catalog_path.write_text(
+        json.dumps([{"name": "n8n-nodes-base.slack"}, {"name": "n8n-nodes-base.notion"}]), encoding="utf-8"
+    )
+    (workflow_directory / "1.json").write_text(
+        json.dumps({"nodes": [{"type": "n8n-nodes-base.slack"}, {"type": "n8n-nodes-extra.foo"}, {"type": "n8n-nodes-extra.foo"}]}),
+        encoding="utf-8",
+    )
+    (workflow_directory / "2.json").write_text(
+        json.dumps({"nodes": [{"type": "n8n-nodes-base.notion"}]}), encoding="utf-8"
+    )
+
+    summary = enrich_default_node_compatibility(map_path, catalog_path)
+    build_index(map_path, index_path)
+
+    assert summary.compatible_workflows == 1
+    assert summary.unavailable_node_types == 1
+    assert [result.id for result in search(index_path=index_path, default_compatible=True)] == [2]
+    missing = search(index_path=index_path, default_compatible=False)
+    assert missing[0].missing_node_type_count == 1
+    assert missing[0].missing_node_instance_count == 2
+    assert json.loads(missing[0].missing_node_packages) == ["n8n-nodes-extra"]
 
 
 def test_web_handler_binds_the_selected_paths(tmp_path: Path) -> None:
