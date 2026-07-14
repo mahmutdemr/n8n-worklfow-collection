@@ -21,17 +21,17 @@
   </head>
   <body>
     <main class="shell">
+      <label class="theme-control">
+        <span class="theme-icon" id="theme-icon" aria-hidden="true">◐</span>
+        <span class="theme-label">Theme</span>
+        <select id="theme-select" aria-label="Color theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
       <header class="hero">
-        <div class="hero-top">
-          <div class="eyebrow"><span class="pulse"></span> Local workflow collection</div>
-          <label class="theme-control">Theme
-            <select id="theme-select" aria-label="Color theme">
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-        </div>
+        <div class="eyebrow"><span class="pulse"></span> Local workflow collection</div>
         <p class="lede">Search your n8n workflow archive by name, category, creator, and popularity.</p>
         <p class="index-status" id="index-status" aria-live="polite">Checking search index…</p>
       </header>

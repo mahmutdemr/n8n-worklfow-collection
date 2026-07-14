@@ -12,6 +12,7 @@ const previousPage = document.querySelector("#previous-page");
 const nextPage = document.querySelector("#next-page");
 const pageStatus = document.querySelector("#page-status");
 const themeSelect = document.querySelector("#theme-select");
+const themeIcon = document.querySelector("#theme-icon");
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fullNumber = new Intl.NumberFormat("en-US");
@@ -31,6 +32,7 @@ function applyTheme(preference) {
   const resolved = preference === "system" ? (systemTheme.matches ? "dark" : "light") : preference;
   document.documentElement.dataset.theme = resolved;
   document.querySelector('meta[name="theme-color"]').content = resolved === "light" ? "#f4f7f5" : "#10151d";
+  themeIcon.textContent = preference === "system" ? "◐" : (resolved === "light" ? "☀" : "☾");
 }
 
 themeSelect.value = savedThemePreference();
