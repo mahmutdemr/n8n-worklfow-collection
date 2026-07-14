@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from n8n_workflow_search.search import build_index, enrich_metadata, enrich_node_counts, get_categories, get_stats, search
+from n8n_workflow_search.search import build_index, enrich_metadata, enrich_node_counts, get_categories, get_stats, search, search_page
 from n8n_workflow_search.web import create_handler
 
 
@@ -76,6 +76,11 @@ def test_search_any_mode_and_view_sort(tmp_path: Path) -> None:
 
     assert [result.id for result in results] == [2, 1]
 
+    page = search_page(index_path=index_path, limit=1, offset=1, sort="nodes")
+
+    assert page.total == 2
+    assert [result.id for result in page.results] == [1]
+
 
 def test_node_range_filter_and_map_enrichment(tmp_path: Path) -> None:
     map_path = tmp_path / "workflow-map.json"
@@ -118,6 +123,8 @@ def test_v2_metadata_enrichment_preserves_node_count(tmp_path: Path) -> None:
     assert results[0].node_count == 3
     assert results[0].views == 220
     assert results[0].created_at == "2025-01-02T03:04:05Z"
+    assert search_page(index_path=index_path, created_after="2025-01-01").total == 2
+    assert search_page(index_path=index_path, created_after="2025-02-01").total == 0
 
 
 def test_web_handler_binds_the_selected_paths(tmp_path: Path) -> None:

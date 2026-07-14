@@ -7,7 +7,7 @@ import re
 import sqlite3
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -46,6 +46,14 @@ class Category:
     @property
     def label(self) -> str:
         return self.display_name or self.name
+
+
+@dataclass(frozen=True)
+class SearchPage:
+    results: list[SearchResult]
+    total: int
+    offset: int
+    limit: int
 
 
 def _connect(index_path: Path) -> sqlite3.Connection:
@@ -304,8 +312,25 @@ def _fts_query(query: str, mode: str) -> str:
     return separator.join(quoted)
 
 
-def search(
-    query: str,
+def _date_bound(value: str | None, name: str, *, end: bool = False) -> tuple[str | None, bool]:
+    """Validate an ISO date or datetime and mark date-only end bounds as exclusive."""
+    if not value:
+        return None, False
+    try:
+        parsed_date = date.fromisoformat(value)
+    except ValueError:
+        try:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError(f"{name} must be an ISO date such as 2025-07-13.") from error
+        return value, False
+    if end:
+        return f"{parsed_date + timedelta(days=1):%Y-%m-%d}T00:00:00.000Z", True
+    return f"{parsed_date:%Y-%m-%d}T00:00:00.000Z", False
+
+
+def search_page(
+    query: str | None = None,
     *,
     index_path: Path = DEFAULT_INDEX_PATH,
     mode: str = "all",
@@ -315,10 +340,13 @@ def search(
     min_views: int | None = None,
     min_nodes: int | None = None,
     max_nodes: int | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
     limit: int = 20,
+    offset: int = 0,
     sort: str = "rank",
-) -> list[SearchResult]:
-    """Search indexed metadata and return the best matching workflows."""
+) -> SearchPage:
+    """Search metadata and return one result page and its total size."""
     if not index_path.is_file():
         raise FileNotFoundError(f"Search index was not found: {index_path}. Run 'n8n-search build' first.")
     if mode not in {"all", "any"}:
@@ -327,6 +355,8 @@ def search(
         raise ValueError("sort must be 'rank', 'views', or 'nodes'.")
     if limit < 1:
         raise ValueError("limit must be at least 1.")
+    if offset < 0:
+        raise ValueError("offset cannot be negative.")
     if min_nodes is not None and min_nodes < 0:
         raise ValueError("min_nodes cannot be negative.")
     if max_nodes is not None and max_nodes < 0:
@@ -334,8 +364,13 @@ def search(
     if min_nodes is not None and max_nodes is not None and min_nodes > max_nodes:
         raise ValueError("min_nodes cannot be greater than max_nodes.")
 
-    clauses = ["workflow_fts MATCH ?"]
-    parameters: list[Any] = [_fts_query(query, mode)]
+    text_query = (query or "").strip()
+    has_text_query = bool(text_query)
+    clauses: list[str] = []
+    parameters: list[Any] = []
+    if has_text_query:
+        clauses.append("workflow_fts MATCH ?")
+        parameters.append(_fts_query(text_query, mode))
     if category:
         clauses.append("workflow.categories LIKE ? COLLATE NOCASE")
         parameters.append(f"%{category}%")
@@ -357,24 +392,40 @@ def search(
     if max_nodes is not None:
         clauses.append("workflow.node_count <= ?")
         parameters.append(max_nodes)
+    after_bound, _ = _date_bound(created_after, "created_after")
+    before_bound, before_is_date = _date_bound(created_before, "created_before", end=True)
+    if after_bound:
+        clauses.append("workflow.created_at >= ?")
+        parameters.append(after_bound)
+    if before_bound:
+        clauses.append("workflow.created_at < ?" if before_is_date else "workflow.created_at <= ?")
+        parameters.append(before_bound)
 
     order_by = {
-        "rank": "score, workflow.views DESC",
+        "rank": "score, workflow.views DESC" if has_text_query else "workflow.views DESC, workflow.node_count DESC",
         "views": "workflow.views DESC, workflow.node_count DESC, workflow.name COLLATE NOCASE",
         "nodes": "workflow.node_count DESC, workflow.views DESC, workflow.name COLLATE NOCASE",
     }[sort]
+    source = "workflow_fts JOIN workflow ON workflow_fts.rowid = workflow.id" if has_text_query else "workflow"
+    score = "bm25(workflow_fts, 10.0, 4.0, 2.0, 2.0, 1.0, 2.0)" if has_text_query else "NULL"
+    where = " AND ".join(clauses) or "1 = 1"
     sql = f"""
-        SELECT workflow.*, bm25(workflow_fts, 10.0, 4.0, 2.0, 2.0, 1.0, 2.0) AS score
-        FROM workflow_fts
-        JOIN workflow ON workflow_fts.rowid = workflow.id
-        WHERE {' AND '.join(clauses)}
+        SELECT workflow.*, {score} AS score
+        FROM {source}
+        WHERE {where}
         ORDER BY {order_by}
         LIMIT ?
+        OFFSET ?
     """
-    parameters.append(limit)
     with _connect(index_path) as connection:
-        rows = connection.execute(sql, parameters).fetchall()
-    return [SearchResult(**dict(row)) for row in rows]
+        total = connection.execute(f"SELECT COUNT(*) FROM {source} WHERE {where}", parameters).fetchone()[0]
+        rows = connection.execute(sql, [*parameters, limit, offset]).fetchall()
+    return SearchPage([SearchResult(**dict(row)) for row in rows], total, offset, limit)
+
+
+def search(query: str | None = None, **kwargs: Any) -> list[SearchResult]:
+    """Return one page of matching workflows for command-line callers."""
+    return search_page(query, **kwargs).results
 
 
 def get_stats(index_path: Path = DEFAULT_INDEX_PATH) -> dict[str, str]:

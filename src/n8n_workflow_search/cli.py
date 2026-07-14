@@ -46,7 +46,7 @@ def _parser() -> argparse.ArgumentParser:
     metadata.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
 
     query = subcommands.add_parser("search", help="Search workflow metadata.")
-    query.add_argument("query", help="Words to search for")
+    query.add_argument("query", nargs="?", default="", help="Optional words to search for")
     query.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path used to resolve local files")
     query.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
     query.add_argument("--mode", choices=("all", "any"), default="all", help="Require all terms or allow any term")
@@ -56,6 +56,8 @@ def _parser() -> argparse.ArgumentParser:
     query.add_argument("--min-views", type=int, help="Minimum n8n gallery views")
     query.add_argument("--min-nodes", type=int, help="Minimum workflow node count")
     query.add_argument("--max-nodes", type=int, help="Maximum workflow node count")
+    query.add_argument("--created-after", help="Only workflows created on or after this ISO date (YYYY-MM-DD)")
+    query.add_argument("--created-before", help="Only workflows created on or before this ISO date (YYYY-MM-DD)")
     query.add_argument("--limit", type=int, default=20, help="Maximum results (default: 20)")
     query.add_argument("--sort", choices=("rank", "views", "nodes"), default="rank", help="Order by full-text rank, views, or nodes")
     query.add_argument("--json", action="store_true", help="Print JSON instead of a readable list")
@@ -113,6 +115,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 min_views=args.min_views,
                 min_nodes=args.min_nodes,
                 max_nodes=args.max_nodes,
+                created_after=args.created_after,
+                created_before=args.created_before,
                 limit=args.limit,
                 sort=args.sort,
             )

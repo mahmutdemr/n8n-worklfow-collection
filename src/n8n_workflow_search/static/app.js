@@ -7,9 +7,16 @@ const status = document.querySelector("#index-status");
 const category = document.querySelector("#category");
 const template = document.querySelector("#result-template");
 const resultsSection = document.querySelector(".results");
+const pagination = document.querySelector("#pagination");
+const previousPage = document.querySelector("#previous-page");
+const nextPage = document.querySelector("#next-page");
+const pageStatus = document.querySelector("#page-status");
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fullNumber = new Intl.NumberFormat("en-US");
+const pageSize = 30;
+let currentOffset = 0;
+let currentTotal = 0;
 
 function createChip(text) {
   const chip = document.createElement("span");
@@ -18,13 +25,16 @@ function createChip(text) {
   return chip;
 }
 
-function renderResults(results) {
+function renderResults(results, total, offset, limit) {
   resultList.replaceChildren();
   if (!results.length) {
-    resultSummary.textContent = "No workflows matched. Try fewer words or clear a filter.";
+    resultSummary.textContent = "No workflows matched. Try fewer filters or clear the search.";
+    pagination.hidden = true;
     return;
   }
-  resultSummary.textContent = `${fullNumber.format(results.length)} matching workflow${results.length === 1 ? "" : "s"}`;
+  const start = offset + 1;
+  const end = Math.min(offset + results.length, total);
+  resultSummary.textContent = `${fullNumber.format(total)} matching workflow${total === 1 ? "" : "s"} · Showing ${fullNumber.format(start)}–${fullNumber.format(end)}`;
   const fragment = document.createDocumentFragment();
   for (const workflow of results) {
     const card = template.content.cloneNode(true);
@@ -49,28 +59,37 @@ function renderResults(results) {
     fragment.append(card);
   }
   resultList.append(fragment);
+  pagination.hidden = total <= limit;
+  previousPage.disabled = offset === 0;
+  nextPage.disabled = offset + limit >= total;
+  pageStatus.textContent = `Page ${Math.floor(offset / limit) + 1} of ${Math.ceil(total / limit)}`;
 }
 
-async function submitSearch(event) {
+async function submitSearch(event, offset = 0) {
   event?.preventDefault();
   const parameters = new URLSearchParams(new FormData(form));
-  const term = parameters.get("q").trim();
-  if (!term) {
-    resultList.replaceChildren();
-    resultSummary.textContent = "Enter a search to explore the collection.";
-    query.focus();
-    return;
+  const createdWithin = Number(parameters.get("created_within"));
+  parameters.delete("created_within");
+  if (createdWithin) {
+    const boundary = new Date();
+    boundary.setUTCDate(boundary.getUTCDate() - createdWithin);
+    parameters.set("created_after", boundary.toISOString().slice(0, 10));
   }
+  parameters.set("limit", String(pageSize));
+  parameters.set("offset", String(offset));
   resultsSection.setAttribute("aria-busy", "true");
   loading.hidden = false;
   try {
     const response = await fetch(`/api/search?${parameters}`);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Search could not be completed.");
-    renderResults(payload.results);
+    currentOffset = payload.offset;
+    currentTotal = payload.total;
+    renderResults(payload.results, payload.total, payload.offset, payload.limit);
   } catch (error) {
     resultList.replaceChildren();
     resultSummary.textContent = error.message;
+    pagination.hidden = true;
   } finally {
     loading.hidden = true;
     resultsSection.setAttribute("aria-busy", "false");
@@ -80,10 +99,11 @@ async function submitSearch(event) {
 form.addEventListener("submit", submitSearch);
 document.querySelector("#clear").addEventListener("click", () => {
   form.reset();
-  resultList.replaceChildren();
-  resultSummary.textContent = "Enter a search to explore the collection.";
+  submitSearch();
   query.focus();
 });
+previousPage.addEventListener("click", () => submitSearch(undefined, Math.max(0, currentOffset - pageSize)));
+nextPage.addEventListener("click", () => submitSearch(undefined, currentOffset + pageSize));
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && document.activeElement !== query && !["INPUT", "SELECT"].includes(document.activeElement.tagName)) {
     event.preventDefault();
@@ -107,3 +127,5 @@ fetch("/api/categories")
     }
   })
   .catch(() => { category.disabled = true; });
+
+submitSearch();

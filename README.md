@@ -25,6 +25,7 @@ range filters are available in the browser and from the command line:
 
 ```bash
 uv run n8n-search search "slack" --min-nodes 5 --max-nodes 20
+uv run n8n-search search --created-after 2025-07-13 --sort nodes
 ```
 
 `enrich-metadata` merges the detailed `collection/workflow-map-v2.json` data

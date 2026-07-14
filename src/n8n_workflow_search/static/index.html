@@ -49,6 +49,14 @@
                 <input name="max_nodes" type="number" min="0" inputmode="numeric" placeholder="Max">
               </span>
             </label>
+            <label>Created
+              <select name="created_within" id="created-within">
+                <option value="">all time</option>
+                <option value="30">last 30 days</option>
+                <option value="90">last 90 days</option>
+                <option value="365">last year</option>
+              </select>
+            </label>
             <label>Sort by
               <select name="sort">
                 <option value="rank">relevance</option>
@@ -68,6 +76,11 @@
           <span id="loading" hidden>Searching…</span>
         </div>
         <div id="result-list" class="result-list"></div>
+        <nav class="pagination" id="pagination" aria-label="Search result pages" hidden>
+          <button class="page-button" id="previous-page" type="button">← Previous</button>
+          <span id="page-status"></span>
+          <button class="page-button" id="next-page" type="button">Next →</button>
+        </nav>
       </section>
     </main>
     <template id="result-template">

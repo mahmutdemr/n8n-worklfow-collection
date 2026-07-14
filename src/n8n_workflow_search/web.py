@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Type
 from urllib.parse import parse_qs, urlparse
 
-from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, get_categories, get_stats, resolved_local_file, search
+from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, get_categories, get_stats, resolved_local_file, search_page
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -62,13 +62,9 @@ def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHa
             super().do_GET()
 
         def _handle_search(self, parameters: dict[str, list[str]]) -> None:
-            query = _one(parameters, "q").strip()
-            if not query:
-                self._send_json(HTTPStatus.OK, {"results": []})
-                return
             try:
-                results = search(
-                    query,
+                page = search_page(
+                    _one(parameters, "q").strip() or None,
                     index_path=index_path,
                     mode=_one(parameters, "mode", "all"),
                     category=_one(parameters, "category").strip() or None,
@@ -77,7 +73,10 @@ def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHa
                     min_views=_integer(_one(parameters, "min_views"), "Minimum views"),
                     min_nodes=_integer(_one(parameters, "min_nodes"), "Minimum nodes"),
                     max_nodes=_integer(_one(parameters, "max_nodes"), "Maximum nodes"),
+                    created_after=_one(parameters, "created_after").strip() or None,
+                    created_before=_one(parameters, "created_before").strip() or None,
                     limit=_integer(_one(parameters, "limit"), "Limit", 30) or 30,
+                    offset=_integer(_one(parameters, "offset"), "Offset", 0) or 0,
                     sort=_one(parameters, "sort", "rank"),
                 )
             except ValueError as error:
@@ -85,11 +84,14 @@ def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHa
                 return
 
             payload = []
-            for result in results:
+            for result in page.results:
                 item = asdict(result)
                 item["local_file"] = str(resolved_local_file(result, map_path))
                 payload.append(item)
-            self._send_json(HTTPStatus.OK, {"results": payload})
+            self._send_json(
+                HTTPStatus.OK,
+                {"results": payload, "total": page.total, "offset": page.offset, "limit": page.limit},
+            )
 
         def _send_json(self, status: HTTPStatus, payload: object) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
