@@ -16,6 +16,7 @@ DEFAULT_MAP_PATH = Path("collection/workflow-map.json")
 DEFAULT_V2_MAP_PATH = Path("collection/workflow-map-v2.json")
 DEFAULT_NODE_CATALOG_PATH = Path("collection/n8n-nodes.json")
 DEFAULT_INDEX_PATH = Path(".n8n-search/workflows.sqlite3")
+DEFAULT_PAGES_INDEX_PATH = Path("pages/search-index.json")
 
 
 @dataclass(frozen=True)
@@ -258,6 +259,68 @@ def enrich_default_node_compatibility(
     }
     _write_map_atomic(payload, map_path)
     return CompatibilitySummary(len(workflows), compatible_workflows, len(unavailable_types))
+
+
+def export_pages_index(
+    map_path: Path = DEFAULT_MAP_PATH, output_path: Path = DEFAULT_PAGES_INDEX_PATH
+) -> int:
+    """Export the minimal public metadata needed by the static GitHub Pages search."""
+    payload, workflows = _load_workflows(map_path)
+    categories = []
+    for category in payload.get("categories", []):
+        parent = category.get("parent") or {}
+        categories.append(
+            {
+                "id": category["id"],
+                "label": category.get("displayName") or category.get("name"),
+                "parentName": parent.get("name"),
+                "workflowCount": len(category.get("workflowIds") or []),
+            }
+        )
+    records = []
+    for workflow in workflows:
+        creator = workflow.get("creator") or {}
+        compatibility = workflow.get("defaultNodeCompatibility") or {}
+        records.append(
+            {
+                "id": workflow["id"],
+                "name": workflow.get("name") or "",
+                "slug": workflow.get("slug") or "",
+                "galleryUrl": workflow.get("galleryUrl") or "",
+                "description": workflow.get("description") or "",
+                "views": int(workflow.get("views") or 0),
+                "nodeCount": int(workflow.get("nodeCount") or 0),
+                "createdAt": workflow.get("createdAt") or "",
+                "creatorName": creator.get("name") or "",
+                "creatorUsername": creator.get("username") or "",
+                "categoryIds": [category["id"] for category in workflow.get("categories") or [] if "id" in category],
+                "defaultCompatible": compatibility.get("usesOnlyInstalledDefaultNodes"),
+                "missingNodeTypeCount": int(compatibility.get("missingNodeTypeCount") or 0),
+                "missingNodeInstanceCount": int(compatibility.get("missingNodeInstanceCount") or 0),
+                "missingNodeTypes": compatibility.get("missingNodeTypes") or [],
+                "missingNodePackages": compatibility.get("missingNodePackages") or [],
+            }
+        )
+    public_index = {
+        "schemaVersion": 1,
+        "generatedAt": payload.get("generatedAt"),
+        "defaultNodeCatalog": payload.get("defaultNodeCatalog"),
+        "categories": categories,
+        "workflows": records,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent, delete=False
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+        json.dump(public_index, temporary, ensure_ascii=False, separators=(",", ":"))
+        temporary.write("\n")
+    try:
+        temporary_path.replace(output_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return len(records)
 
 
 def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_INDEX_PATH) -> int:

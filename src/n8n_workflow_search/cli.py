@@ -13,6 +13,7 @@ from .search import (
     DEFAULT_INDEX_PATH,
     DEFAULT_MAP_PATH,
     DEFAULT_NODE_CATALOG_PATH,
+    DEFAULT_PAGES_INDEX_PATH,
     DEFAULT_V2_MAP_PATH,
     build_index,
     enrich_default_node_compatibility,
@@ -22,6 +23,7 @@ from .search import (
     get_stats,
     resolved_local_file,
     search,
+    export_pages_index,
 )
 from .web import serve
 
@@ -53,6 +55,10 @@ def _parser() -> argparse.ArgumentParser:
     compatibility.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="primary workflow map path")
     compatibility.add_argument("--catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH, help="installed node catalog path")
     compatibility.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
+
+    export = subcommands.add_parser("export-pages", help="Export the minimal public index used by the GitHub Pages site.")
+    export.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="primary workflow map path")
+    export.add_argument("--output", type=_path, default=DEFAULT_PAGES_INDEX_PATH, help="public JSON index path")
 
     query = subcommands.add_parser("search", help="Search workflow metadata.")
     query.add_argument("query", nargs="?", default="", help="Optional words to search for")
@@ -125,6 +131,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"Tagged {summary.workflows:,} workflows: {summary.compatible_workflows:,} use only installed default nodes; "
                 f"{summary.unavailable_node_types:,} unavailable node types found."
             )
+        elif args.command == "export-pages":
+            count = export_pages_index(args.file, args.output)
+            print(f"Exported {count:,} workflows to {args.output}.")
         elif args.command == "search":
             results = search(
                 args.query,

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10151d">
+    <title>n8n Workflow Finder</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="eyebrow"><span class="pulse"></span> Public workflow collection</div>
+        <p class="lede">Search n8n workflow metadata by name, category, creator, popularity, and node requirements.</p>
+        <p class="index-status" id="index-status" aria-live="polite">Loading public search index…</p>
+      </header>
+
+      <section class="search-panel" aria-label="Workflow search">
+        <form id="search-form">
+          <label class="query-field" for="query">
+            <span class="search-mark" aria-hidden="true">⌕</span>
+            <input id="query" name="q" type="search" placeholder="Try “Slack approval”, “Postgres”, “OpenAI”…" autocomplete="off" autofocus>
+            <kbd>/</kbd>
+          </label>
+          <div class="controls">
+            <div class="filter-grid">
+              <label>Match <select name="mode"><option value="all">all words</option><option value="any">any word</option></select></label>
+              <label>Category <select name="category_id" id="category"><option value="">All categories</option></select></label>
+              <label>Creator <input name="creator" type="text" placeholder="Name or username"></label>
+              <label>Min. views <input name="min_views" type="number" min="0" inputmode="numeric" placeholder="0"></label>
+              <label>Nodes <span class="range-inputs"><input name="min_nodes" type="number" min="0" inputmode="numeric" placeholder="Min"><span aria-hidden="true">–</span><input name="max_nodes" type="number" min="0" inputmode="numeric" placeholder="Max"></span></label>
+              <label>Node availability <select name="default_compatible"><option value="">all workflows</option><option value="true">default nodes only</option><option value="false">needs unavailable nodes</option></select></label>
+              <label>Created <select name="created_within"><option value="">all time</option><option value="30">last 30 days</option><option value="90">last 90 days</option><option value="365">last year</option></select></label>
+              <label>Sort by <select name="sort"><option value="rank">relevance</option><option value="views">most viewed</option><option value="nodes">most nodes</option></select></label>
+            </div>
+            <div class="filter-actions"><button class="clear" type="button" id="clear">Clear</button><button class="submit" type="submit">Search <span aria-hidden="true">↗</span></button></div>
+          </div>
+        </form>
+      </section>
+
+      <section class="results" aria-live="polite" aria-busy="false">
+        <div class="results-heading"><p id="result-summary">Loading workflows…</p><span id="loading" hidden>Searching…</span></div>
+        <div id="result-list" class="result-list"></div>
+        <nav class="pagination" id="pagination" aria-label="Search result pages" hidden><button class="page-button" id="previous-page" type="button">← Previous</button><span id="page-status"></span><button class="page-button" id="next-page" type="button">Next →</button></nav>
+      </section>
+    </main>
+    <template id="result-template">
+      <article class="result-card">
+        <div class="result-topline"><span class="workflow-id"></span><span class="views"></span></div>
+        <h2></h2><p class="meta"></p><span class="compatibility"></span><div class="chips"></div>
+        <div class="result-actions"><a class="gallery" target="_blank" rel="noreferrer">Open in n8n <span aria-hidden="true">↗</span></a></div>
+      </article>
+    </template>
+  </body>
+</html>

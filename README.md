@@ -86,3 +86,16 @@ index location when needed.
 `collection/`, `.n8n-search/`, and local Python environments are ignored. Commit the
 search tool and its lockfile, but not the downloaded workflow collection or generated
 SQLite index.
+
+## GitHub Pages
+
+`pages/` contains a standalone public search site. It does not publish workflow JSON
+files or local file paths. Regenerate its small public search index after updating the
+local map, then commit the `pages/` directory:
+
+```bash
+uv run n8n-search export-pages
+```
+
+The included GitHub Actions workflow deploys `pages/` to GitHub Pages on pushes to
+`main`. Enable **Settings → Pages → Source: GitHub Actions** once in the repository.

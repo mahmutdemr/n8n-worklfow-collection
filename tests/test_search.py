@@ -8,6 +8,7 @@ from n8n_workflow_search.search import (
     enrich_default_node_compatibility,
     enrich_metadata,
     enrich_node_counts,
+    export_pages_index,
     get_categories,
     get_stats,
     search,
@@ -164,6 +165,29 @@ def test_default_node_compatibility_tags_and_filters(tmp_path: Path) -> None:
     assert missing[0].missing_node_type_count == 1
     assert missing[0].missing_node_instance_count == 2
     assert json.loads(missing[0].missing_node_packages) == ["n8n-nodes-extra"]
+
+
+def test_pages_export_contains_only_public_search_metadata(tmp_path: Path) -> None:
+    map_path = tmp_path / "workflow-map.json"
+    output_path = tmp_path / "pages" / "search-index.json"
+    _write_map(map_path)
+    payload = json.loads(map_path.read_text(encoding="utf-8"))
+    payload["workflows"][0]["defaultNodeCompatibility"] = {
+        "usesOnlyInstalledDefaultNodes": False,
+        "missingNodeTypeCount": 1,
+        "missingNodeInstanceCount": 2,
+        "missingNodeTypes": ["n8n-nodes-extra.foo"],
+        "missingNodePackages": ["n8n-nodes-extra"],
+    }
+    map_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert export_pages_index(map_path, output_path) == 2
+    exported = json.loads(output_path.read_text(encoding="utf-8"))
+    record = exported["workflows"][0]
+
+    assert record["missingNodeTypes"] == ["n8n-nodes-extra.foo"]
+    assert "file" not in record
+    assert "workflowIds" not in exported["categories"][0]
 
 
 def test_web_handler_binds_the_selected_paths(tmp_path: Path) -> None:
