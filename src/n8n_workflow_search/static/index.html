@@ -25,54 +25,58 @@
           </label>
 
           <div class="controls">
-            <label>Match
-              <select name="mode">
-                <option value="all">all words</option>
-                <option value="any">any word</option>
-              </select>
-            </label>
-            <label>Category
-              <select name="category_id" id="category">
-                <option value="">All categories</option>
-              </select>
-            </label>
-            <label>Creator
-              <input name="creator" type="text" placeholder="Name or username">
-            </label>
-            <label>Min. views
-              <input name="min_views" type="number" min="0" inputmode="numeric" placeholder="0">
-            </label>
-            <label>Nodes
-              <span class="range-inputs">
-                <input name="min_nodes" type="number" min="0" inputmode="numeric" placeholder="Min">
-                <span aria-hidden="true">–</span>
-                <input name="max_nodes" type="number" min="0" inputmode="numeric" placeholder="Max">
-              </span>
-            </label>
-            <label>Node availability
-              <select name="default_compatible">
-                <option value="">all workflows</option>
-                <option value="true">default nodes only</option>
-                <option value="false">needs unavailable nodes</option>
-              </select>
-            </label>
-            <label>Created
-              <select name="created_within" id="created-within">
-                <option value="">all time</option>
-                <option value="30">last 30 days</option>
-                <option value="90">last 90 days</option>
-                <option value="365">last year</option>
-              </select>
-            </label>
-            <label>Sort by
-              <select name="sort">
-                <option value="rank">relevance</option>
-                <option value="views">most viewed</option>
-                <option value="nodes">most nodes</option>
-              </select>
-            </label>
-            <button class="clear" type="button" id="clear">Clear</button>
-            <button class="submit" type="submit">Search <span aria-hidden="true">↗</span></button>
+            <div class="filter-grid">
+              <label>Match
+                <select name="mode">
+                  <option value="all">all words</option>
+                  <option value="any">any word</option>
+                </select>
+              </label>
+              <label>Category
+                <select name="category_id" id="category">
+                  <option value="">All categories</option>
+                </select>
+              </label>
+              <label>Creator
+                <input name="creator" type="text" placeholder="Name or username">
+              </label>
+              <label>Min. views
+                <input name="min_views" type="number" min="0" inputmode="numeric" placeholder="0">
+              </label>
+              <label>Nodes
+                <span class="range-inputs">
+                  <input name="min_nodes" type="number" min="0" inputmode="numeric" placeholder="Min">
+                  <span aria-hidden="true">–</span>
+                  <input name="max_nodes" type="number" min="0" inputmode="numeric" placeholder="Max">
+                </span>
+              </label>
+              <label>Node availability
+                <select name="default_compatible">
+                  <option value="">all workflows</option>
+                  <option value="true">default nodes only</option>
+                  <option value="false">needs unavailable nodes</option>
+                </select>
+              </label>
+              <label>Created
+                <select name="created_within" id="created-within">
+                  <option value="">all time</option>
+                  <option value="30">last 30 days</option>
+                  <option value="90">last 90 days</option>
+                  <option value="365">last year</option>
+                </select>
+              </label>
+              <label>Sort by
+                <select name="sort">
+                  <option value="rank">relevance</option>
+                  <option value="views">most viewed</option>
+                  <option value="nodes">most nodes</option>
+                </select>
+              </label>
+            </div>
+            <div class="filter-actions">
+              <button class="clear" type="button" id="clear">Clear</button>
+              <button class="submit" type="submit">Search <span aria-hidden="true">↗</span></button>
+            </div>
           </div>
         </form>
       </section>
