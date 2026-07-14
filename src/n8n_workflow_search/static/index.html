@@ -6,12 +6,32 @@
     <meta name="theme-color" content="#10151d">
     <title>n8n Workflow Finder</title>
     <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/theme.css">
+    <script>
+      (() => {
+        try {
+          const preference = localStorage.getItem("n8n-workflow-theme") || "system";
+          document.documentElement.dataset.theme = preference === "system"
+            ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+            : preference;
+        } catch { /* Use the dark default when storage is unavailable. */ }
+      })();
+    </script>
     <script src="/app.js" defer></script>
   </head>
   <body>
     <main class="shell">
       <header class="hero">
-        <div class="eyebrow"><span class="pulse"></span> Local workflow collection</div>
+        <div class="hero-top">
+          <div class="eyebrow"><span class="pulse"></span> Local workflow collection</div>
+          <label class="theme-control">Theme
+            <select id="theme-select" aria-label="Color theme">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </div>
         <p class="lede">Search your n8n workflow archive by name, category, creator, and popularity.</p>
         <p class="index-status" id="index-status" aria-live="polite">Checking search index…</p>
       </header>

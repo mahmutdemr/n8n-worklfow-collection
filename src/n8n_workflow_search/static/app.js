@@ -11,12 +11,34 @@ const pagination = document.querySelector("#pagination");
 const previousPage = document.querySelector("#previous-page");
 const nextPage = document.querySelector("#next-page");
 const pageStatus = document.querySelector("#page-status");
+const themeSelect = document.querySelector("#theme-select");
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fullNumber = new Intl.NumberFormat("en-US");
 const pageSize = 30;
 let currentOffset = 0;
 let currentTotal = 0;
+
+const themeStorageKey = "n8n-workflow-theme";
+const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+
+function savedThemePreference() {
+  try { return localStorage.getItem(themeStorageKey) || "system"; } catch { return "system"; }
+}
+
+function applyTheme(preference) {
+  const resolved = preference === "system" ? (systemTheme.matches ? "dark" : "light") : preference;
+  document.documentElement.dataset.theme = resolved;
+  document.querySelector('meta[name="theme-color"]').content = resolved === "light" ? "#f4f7f5" : "#10151d";
+}
+
+themeSelect.value = savedThemePreference();
+applyTheme(themeSelect.value);
+themeSelect.addEventListener("change", () => {
+  try { localStorage.setItem(themeStorageKey, themeSelect.value); } catch { /* Preference remains session-only. */ }
+  applyTheme(themeSelect.value);
+});
+systemTheme.addEventListener("change", () => { if (savedThemePreference() === "system") applyTheme("system"); });
 
 function createChip(text) {
   const chip = document.createElement("span");
