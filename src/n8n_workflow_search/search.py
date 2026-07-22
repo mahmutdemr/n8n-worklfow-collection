@@ -7,6 +7,7 @@ import hashlib
 import re
 import sqlite3
 import tempfile
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -15,6 +16,8 @@ from typing import Any, Iterable
 DEFAULT_MAP_PATH = Path("collection/workflow-map.json")
 DEFAULT_V2_MAP_PATH = Path("collection/workflow-map-v2.json")
 DEFAULT_NODE_CATALOG_PATH = Path("collection/n8n-nodes.json")
+DEFAULT_NODE_MAP_PATH = Path("collection/nodes/node-map.json")
+DEFAULT_WORKFLOW_DIRECTORY = Path("collection/workflows")
 DEFAULT_INDEX_PATH = Path(".n8n-search/workflows.sqlite3")
 DEFAULT_PAGES_INDEX_PATH = Path("pages/search-index.json")
 
@@ -69,6 +72,16 @@ class CompatibilitySummary:
     workflows: int
     compatible_workflows: int
     unavailable_node_types: int
+
+
+@dataclass(frozen=True)
+class NodeMapSummary:
+    catalog_records: int
+    node_types: int
+    workflows: int
+    node_instances: int
+    used_node_types: int
+    unmapped_node_types: int
 
 
 def _connect(index_path: Path) -> sqlite3.Connection:
@@ -200,6 +213,269 @@ def _node_package_name(node_type: str) -> str:
         package, _, _ = remainder.partition(".")
         return f"{scope}/{package}" if package else node_type
     return node_type.partition(".")[0]
+
+
+def _version_label(value: Any) -> str:
+    """Return a stable label for catalog and workflow node versions."""
+    if value is None:
+        return "unknown"
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return format(value, ".15g")
+    label = str(value).strip()
+    return label or "unknown"
+
+
+def _catalog_versions(value: Any) -> list[str]:
+    values = value if isinstance(value, list) else [value]
+    return list(dict.fromkeys(_version_label(item) for item in values))
+
+
+def _ordered_unique(values: Iterable[Any]) -> list[Any]:
+    result: list[Any] = []
+    for value in values:
+        if value is not None and value not in result:
+            result.append(value)
+    return result
+
+
+def _definition_summary(definition: dict[str, Any]) -> dict[str, Any]:
+    codex = definition.get("codex") if isinstance(definition.get("codex"), dict) else {}
+    resources = codex.get("resources") if isinstance(codex.get("resources"), dict) else {}
+    documentation_urls = _ordered_unique(
+        resource.get("url")
+        for resource_list in resources.values()
+        if isinstance(resource_list, list)
+        for resource in resource_list
+        if isinstance(resource, dict)
+    )
+    credentials = _ordered_unique(
+        credential.get("name")
+        for credential in definition.get("credentials") or []
+        if isinstance(credential, dict)
+    )
+    return {
+        "versions": _catalog_versions(definition.get("version")),
+        "displayName": str(definition.get("displayName") or ""),
+        "description": str(definition.get("description") or ""),
+        "groups": [str(group) for group in definition.get("group") or []],
+        "categories": [str(category) for category in codex.get("categories") or []],
+        "credentials": credentials,
+        "documentationUrls": documentation_urls,
+        "iconUrl": str(definition.get("iconUrl") or ""),
+        "usableAsTool": definition.get("usableAsTool") is True,
+        "hidden": definition.get("hidden") is True,
+    }
+
+
+def build_node_map(
+    node_catalog_path: Path = DEFAULT_NODE_CATALOG_PATH,
+    workflow_directory: Path = DEFAULT_WORKFLOW_DIRECTORY,
+    output_path: Path = DEFAULT_NODE_MAP_PATH,
+) -> NodeMapSummary:
+    """Build a searchable node catalog enriched with workflow usage statistics.
+
+    Catalog records sharing the same n8n type are represented as definitions of
+    one node. Workflow usage is counted by type, which is the identifier stored
+    in workflow JSON files. The output is replaced atomically after every source
+    file has been validated.
+    """
+    try:
+        catalog_bytes = node_catalog_path.read_bytes()
+        catalog = json.loads(catalog_bytes)
+    except FileNotFoundError as error:
+        raise FileNotFoundError(f"Node catalog was not found: {node_catalog_path}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Node catalog is not valid JSON: {node_catalog_path} ({error})") from error
+    if not isinstance(catalog, list):
+        raise ValueError("Node catalog must be a JSON list.")
+
+    definitions_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for position, definition in enumerate(catalog):
+        if not isinstance(definition, dict) or not definition.get("name"):
+            raise ValueError(f"Node catalog record {position} has no node name.")
+        definitions_by_type[str(definition["name"])].append(definition)
+    if not definitions_by_type:
+        raise ValueError("Node catalog does not contain any node names.")
+
+    workflow_paths = sorted(workflow_directory.rglob("*.json"))
+    if not workflow_paths:
+        raise FileNotFoundError(f"No workflow JSON files were found in: {workflow_directory}")
+
+    usage: dict[str, Counter[str]] = defaultdict(Counter)
+    version_usage: dict[str, dict[str, Counter[str]]] = defaultdict(lambda: defaultdict(Counter))
+    total_node_instances = 0
+    typed_node_instances = 0
+    workflows_with_unmapped_nodes = 0
+    catalog_types = set(definitions_by_type)
+
+    for workflow_path in workflow_paths:
+        try:
+            with workflow_path.open(encoding="utf-8") as source:
+                workflow = json.load(source)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Workflow file is not valid JSON: {workflow_path} ({error})") from error
+        nodes = workflow.get("nodes") if isinstance(workflow, dict) else None
+        if not isinstance(nodes, list):
+            raise ValueError(f"Workflow has no 'nodes' list: {workflow_path}")
+
+        total_node_instances += len(nodes)
+        workflow_types: set[str] = set()
+        workflow_versions: set[tuple[str, str]] = set()
+        has_unmapped_node = False
+        for node in nodes:
+            if not isinstance(node, dict) or not node.get("type"):
+                continue
+            node_type = str(node["type"])
+            version = _version_label(node.get("typeVersion"))
+            typed_node_instances += 1
+            workflow_types.add(node_type)
+            workflow_versions.add((node_type, version))
+            usage[node_type]["instanceCount"] += 1
+            version_usage[node_type][version]["instanceCount"] += 1
+            if node.get("disabled") is True:
+                usage[node_type]["disabledInstanceCount"] += 1
+            else:
+                usage[node_type]["enabledInstanceCount"] += 1
+            if node_type not in catalog_types:
+                has_unmapped_node = True
+        for node_type in workflow_types:
+            usage[node_type]["workflowCount"] += 1
+        for node_type, version in workflow_versions:
+            version_usage[node_type][version]["workflowCount"] += 1
+        if has_unmapped_node:
+            workflows_with_unmapped_nodes += 1
+
+    workflow_count = len(workflow_paths)
+
+    def usage_payload(node_type: str) -> dict[str, Any]:
+        counts = usage[node_type]
+        instance_count = counts["instanceCount"]
+        used_workflows = counts["workflowCount"]
+        versions = [
+            {
+                "version": version,
+                "workflowCount": version_counts["workflowCount"],
+                "instanceCount": version_counts["instanceCount"],
+            }
+            for version, version_counts in sorted(version_usage[node_type].items())
+        ]
+        return {
+            "workflowCount": used_workflows,
+            "workflowPercentage": round(used_workflows * 100 / workflow_count, 6),
+            "instanceCount": instance_count,
+            "instancePercentage": round(instance_count * 100 / typed_node_instances, 6) if typed_node_instances else 0,
+            "averageInstancesPerUsingWorkflow": round(instance_count / used_workflows, 6) if used_workflows else 0,
+            "enabledInstanceCount": counts["enabledInstanceCount"],
+            "disabledInstanceCount": counts["disabledInstanceCount"],
+            "versions": versions,
+        }
+
+    workflow_rank = {
+        node_type: rank
+        for rank, node_type in enumerate(
+            sorted(catalog_types, key=lambda item: (-usage[item]["workflowCount"], -usage[item]["instanceCount"], item)),
+            start=1,
+        )
+    }
+    instance_rank = {
+        node_type: rank
+        for rank, node_type in enumerate(
+            sorted(catalog_types, key=lambda item: (-usage[item]["instanceCount"], -usage[item]["workflowCount"], item)),
+            start=1,
+        )
+    }
+
+    node_records = []
+    for node_type in sorted(catalog_types):
+        definitions = definitions_by_type[node_type]
+        definition_summaries = [_definition_summary(definition) for definition in definitions]
+        node_usage = usage_payload(node_type)
+        node_usage["workflowRank"] = workflow_rank[node_type]
+        node_usage["instanceRank"] = instance_rank[node_type]
+        node_records.append(
+            {
+                "type": node_type,
+                "packageName": _node_package_name(node_type),
+                "name": node_type.rpartition(".")[2],
+                "displayName": next((item["displayName"] for item in definition_summaries if item["displayName"]), ""),
+                "description": next((item["description"] for item in definition_summaries if item["description"]), ""),
+                "groups": _ordered_unique(group for item in definition_summaries for group in item["groups"]),
+                "categories": _ordered_unique(category for item in definition_summaries for category in item["categories"]),
+                "credentials": _ordered_unique(credential for item in definition_summaries for credential in item["credentials"]),
+                "documentationUrls": _ordered_unique(url for item in definition_summaries for url in item["documentationUrls"]),
+                "iconUrl": next((item["iconUrl"] for item in definition_summaries if item["iconUrl"]), ""),
+                "usableAsTool": any(item["usableAsTool"] for item in definition_summaries),
+                "hidden": all(item["hidden"] for item in definition_summaries),
+                "catalog": {
+                    "definitionCount": len(definitions),
+                    "availableVersions": _ordered_unique(
+                        version for item in definition_summaries for version in item["versions"]
+                    ),
+                    "definitions": definition_summaries,
+                },
+                "usage": node_usage,
+            }
+        )
+
+    unmapped_types = sorted(set(usage) - catalog_types)
+    unmapped_records = [
+        {
+            "type": node_type,
+            "packageName": _node_package_name(node_type),
+            "name": node_type.rpartition(".")[2],
+            "usage": usage_payload(node_type),
+        }
+        for node_type in unmapped_types
+    ]
+    catalog_instance_count = sum(usage[node_type]["instanceCount"] for node_type in catalog_types)
+    used_catalog_types = sum(usage[node_type]["instanceCount"] > 0 for node_type in catalog_types)
+    duplicate_types = sum(len(definitions) > 1 for definitions in definitions_by_type.values())
+    generated_at = datetime.now(UTC).isoformat()
+    payload = {
+        "schemaVersion": 1,
+        "generatedAt": generated_at,
+        "sources": {
+            "nodeCatalog": {
+                "path": str(node_catalog_path),
+                "sha256": hashlib.sha256(catalog_bytes).hexdigest(),
+            },
+            "workflowDirectory": str(workflow_directory),
+        },
+        "summary": {
+            "catalogRecordCount": len(catalog),
+            "nodeTypeCount": len(catalog_types),
+            "duplicateNodeTypeCount": duplicate_types,
+            "additionalCatalogRecordCount": len(catalog) - len(catalog_types),
+            "usedNodeTypeCount": used_catalog_types,
+            "unusedNodeTypeCount": len(catalog_types) - used_catalog_types,
+            "workflowCount": workflow_count,
+            "workflowNodeInstanceCount": total_node_instances,
+            "typedWorkflowNodeInstanceCount": typed_node_instances,
+            "catalogNodeInstanceCount": catalog_instance_count,
+            "catalogInstanceCoveragePercentage": round(catalog_instance_count * 100 / typed_node_instances, 6)
+            if typed_node_instances
+            else 0,
+            "unmappedNodeTypeCount": len(unmapped_types),
+            "unmappedNodeInstanceCount": typed_node_instances - catalog_instance_count,
+            "workflowCountWithUnmappedNodes": workflows_with_unmapped_nodes,
+        },
+        "nodes": node_records,
+        "unmappedNodeTypes": unmapped_records,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_map_atomic(payload, output_path)
+    return NodeMapSummary(
+        catalog_records=len(catalog),
+        node_types=len(catalog_types),
+        workflows=workflow_count,
+        node_instances=total_node_instances,
+        used_node_types=used_catalog_types,
+        unmapped_node_types=len(unmapped_types),
+    )
 
 
 def enrich_default_node_compatibility(

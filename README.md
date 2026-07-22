@@ -11,6 +11,7 @@ uv run n8n-search build
 uv run n8n-search enrich-node-counts
 uv run n8n-search enrich-metadata
 uv run n8n-search enrich-default-node-compatibility
+uv run n8n-search build-node-map
 uv run n8n-search search "postgres slack"
 uv run n8n-search serve
 ```
@@ -42,6 +43,22 @@ types, and package summaries to the map, then rebuilds the index:
 uv run n8n-search search --default-compatible
 uv run n8n-search search --no-default-compatible --min-missing-node-types 2
 ```
+
+## Node usage map
+
+`build-node-map` scans every JSON file in `collection/workflows/` and creates
+`collection/nodes/node-map.json`. The map groups the 919 catalog records by the
+node `type` used in workflow files, while retaining their versioned catalog
+definitions. Each unique type includes workflow and instance counts, percentage
+shares, enabled and disabled instance counts, version usage, and usage ranks.
+
+```bash
+uv run n8n-search build-node-map
+```
+
+The map also contains an `unmappedNodeTypes` audit list for types found in the
+workflow collection but absent from `collection/n8n-nodes.json`. Since the
+entire `collection/` directory is ignored, this generated map remains local.
 
 ## Browser interface
 

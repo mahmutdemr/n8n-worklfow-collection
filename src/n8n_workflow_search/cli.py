@@ -13,9 +13,12 @@ from .search import (
     DEFAULT_INDEX_PATH,
     DEFAULT_MAP_PATH,
     DEFAULT_NODE_CATALOG_PATH,
+    DEFAULT_NODE_MAP_PATH,
     DEFAULT_PAGES_INDEX_PATH,
+    DEFAULT_WORKFLOW_DIRECTORY,
     DEFAULT_V2_MAP_PATH,
     build_index,
+    build_node_map,
     enrich_default_node_compatibility,
     enrich_metadata,
     enrich_node_counts,
@@ -55,6 +58,15 @@ def _parser() -> argparse.ArgumentParser:
     compatibility.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="primary workflow map path")
     compatibility.add_argument("--catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH, help="installed node catalog path")
     compatibility.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
+
+    node_map = subcommands.add_parser(
+        "build-node-map", help="Build a node catalog enriched with usage statistics from all workflows."
+    )
+    node_map.add_argument("--catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH, help="installed node catalog path")
+    node_map.add_argument(
+        "--workflows", type=_path, default=DEFAULT_WORKFLOW_DIRECTORY, help="directory containing workflow JSON files"
+    )
+    node_map.add_argument("--output", type=_path, default=DEFAULT_NODE_MAP_PATH, help="generated node map path")
 
     export = subcommands.add_parser("export-pages", help="Export the minimal public index used by the GitHub Pages site.")
     export.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="primary workflow map path")
@@ -130,6 +142,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 f"Tagged {summary.workflows:,} workflows: {summary.compatible_workflows:,} use only installed default nodes; "
                 f"{summary.unavailable_node_types:,} unavailable node types found."
+            )
+        elif args.command == "build-node-map":
+            summary = build_node_map(args.catalog, args.workflows, args.output)
+            print(
+                f"Built {args.output} from {summary.catalog_records:,} catalog records: "
+                f"{summary.node_types:,} unique node types, {summary.used_node_types:,} used across "
+                f"{summary.workflows:,} workflows and {summary.node_instances:,} node instances; "
+                f"{summary.unmapped_node_types:,} workflow node types are not in the catalog."
             )
         elif args.command == "export-pages":
             count = export_pages_index(args.file, args.output)

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from n8n_workflow_search.search import (
     build_index,
+    build_node_map,
     enrich_default_node_compatibility,
     enrich_metadata,
     enrich_node_counts,
@@ -165,6 +166,90 @@ def test_default_node_compatibility_tags_and_filters(tmp_path: Path) -> None:
     assert missing[0].missing_node_type_count == 1
     assert missing[0].missing_node_instance_count == 2
     assert json.loads(missing[0].missing_node_packages) == ["n8n-nodes-extra"]
+
+
+def test_build_node_map_aggregates_types_workflows_instances_and_versions(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "n8n-nodes.json"
+    workflow_directory = tmp_path / "workflows"
+    output_path = tmp_path / "nodes" / "node-map.json"
+    workflow_directory.mkdir()
+    catalog_path.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "n8n-nodes-base.foo",
+                    "displayName": "Foo",
+                    "description": "Foo node",
+                    "version": [2, 2.1],
+                    "group": ["transform"],
+                    "credentials": [{"name": "fooApi", "required": True}],
+                    "codex": {"categories": ["Data & Storage"]},
+                    "inputs": [],
+                    "outputs": [],
+                    "properties": [],
+                    "defaults": {},
+                },
+                {
+                    "name": "n8n-nodes-base.foo",
+                    "displayName": "Foo",
+                    "description": "Old Foo node",
+                    "version": 1,
+                    "group": ["transform"],
+                    "inputs": [],
+                    "outputs": [],
+                    "properties": [],
+                    "defaults": {},
+                },
+                {
+                    "name": "n8n-nodes-base.bar",
+                    "displayName": "Bar",
+                    "description": "Bar node",
+                    "version": 1,
+                    "group": ["output"],
+                    "inputs": [],
+                    "outputs": [],
+                    "properties": [],
+                    "defaults": {},
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (workflow_directory / "one.json").write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {"type": "n8n-nodes-base.foo", "typeVersion": 1},
+                    {"type": "n8n-nodes-base.foo", "typeVersion": 1, "disabled": True},
+                    {"type": "n8n-nodes-extra.baz", "typeVersion": 3},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (workflow_directory / "two.json").write_text(
+        json.dumps({"nodes": [{"type": "n8n-nodes-base.foo", "typeVersion": 2.1}]}), encoding="utf-8"
+    )
+
+    result = build_node_map(catalog_path, workflow_directory, output_path)
+    node_map = json.loads(output_path.read_text(encoding="utf-8"))
+    nodes = {node["type"]: node for node in node_map["nodes"]}
+
+    assert result.catalog_records == 3
+    assert result.node_types == 2
+    assert result.node_instances == 4
+    assert node_map["summary"]["additionalCatalogRecordCount"] == 1
+    assert node_map["summary"]["unmappedNodeTypeCount"] == 1
+    assert nodes["n8n-nodes-base.foo"]["catalog"]["availableVersions"] == ["2", "2.1", "1"]
+    assert nodes["n8n-nodes-base.foo"]["usage"]["workflowCount"] == 2
+    assert nodes["n8n-nodes-base.foo"]["usage"]["instanceCount"] == 3
+    assert nodes["n8n-nodes-base.foo"]["usage"]["disabledInstanceCount"] == 1
+    assert nodes["n8n-nodes-base.foo"]["usage"]["versions"] == [
+        {"version": "1", "workflowCount": 1, "instanceCount": 2},
+        {"version": "2.1", "workflowCount": 1, "instanceCount": 1},
+    ]
+    assert nodes["n8n-nodes-base.bar"]["usage"]["instanceCount"] == 0
+    assert node_map["unmappedNodeTypes"][0]["type"] == "n8n-nodes-extra.baz"
 
 
 def test_pages_export_contains_only_public_search_metadata(tmp_path: Path) -> None:
