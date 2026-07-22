@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import hashlib
+import io
 import re
 import sqlite3
 import tempfile
@@ -16,6 +18,7 @@ from typing import Any, Iterable
 DEFAULT_MAP_PATH = Path("collection/workflow-map.json")
 DEFAULT_V2_MAP_PATH = Path("collection/workflow-map-v2.json")
 DEFAULT_NODE_CATALOG_PATH = Path("collection/n8n-nodes.json")
+DEFAULT_NODE_KEY_STATS_PATH = Path("collection/nodes/stats/all-possible-keys.csv")
 DEFAULT_NODE_MAP_PATH = Path("collection/nodes/node-map.json")
 DEFAULT_WORKFLOW_DIRECTORY = Path("collection/workflows")
 DEFAULT_INDEX_PATH = Path(".n8n-search/workflows.sqlite3")
@@ -258,6 +261,7 @@ def _definition_summary(definition: dict[str, Any]) -> dict[str, Any]:
         if isinstance(credential, dict)
     )
     return {
+        "keys": sorted(definition),
         "versions": _catalog_versions(definition.get("version")),
         "displayName": str(definition.get("displayName") or ""),
         "description": str(definition.get("description") or ""),
@@ -275,6 +279,7 @@ def build_node_map(
     node_catalog_path: Path = DEFAULT_NODE_CATALOG_PATH,
     workflow_directory: Path = DEFAULT_WORKFLOW_DIRECTORY,
     output_path: Path = DEFAULT_NODE_MAP_PATH,
+    key_stats_path: Path = DEFAULT_NODE_KEY_STATS_PATH,
 ) -> NodeMapSummary:
     """Build a searchable node catalog enriched with workflow usage statistics.
 
@@ -292,6 +297,60 @@ def build_node_map(
         raise ValueError(f"Node catalog is not valid JSON: {node_catalog_path} ({error})") from error
     if not isinstance(catalog, list):
         raise ValueError("Node catalog must be a JSON list.")
+
+    try:
+        key_stats_bytes = key_stats_path.read_bytes()
+        key_stats_text = key_stats_bytes.decode("utf-8-sig")
+    except FileNotFoundError as error:
+        raise FileNotFoundError(f"Node key statistics were not found: {key_stats_path}") from error
+    except UnicodeDecodeError as error:
+        raise ValueError(f"Node key statistics are not valid UTF-8: {key_stats_path}") from error
+
+    reader = csv.DictReader(io.StringIO(key_stats_text))
+    expected_columns = ["key", "item_count", "usage_rate_percent"]
+    if reader.fieldnames != expected_columns:
+        raise ValueError(f"Node key statistics must contain these columns: {', '.join(expected_columns)}.")
+    potential_keys = []
+    for row_number, row in enumerate(reader, start=2):
+        try:
+            key = str(row["key"]).strip()
+            item_count = int(row["item_count"])
+            usage_rate_percent = float(row["usage_rate_percent"])
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Node key statistics row {row_number} contains invalid values.") from error
+        if not key:
+            raise ValueError(f"Node key statistics row {row_number} has an empty key.")
+        potential_keys.append(
+            {"key": key, "itemCount": item_count, "usageRatePercent": usage_rate_percent}
+        )
+    if not potential_keys:
+        raise ValueError("Node key statistics do not contain any keys.")
+    if len({item["key"] for item in potential_keys}) != len(potential_keys):
+        raise ValueError("Node key statistics contain duplicate keys.")
+
+    computed_key_counts = Counter(
+        key
+        for definition in catalog
+        if isinstance(definition, dict)
+        for key in definition
+    )
+    csv_key_counts = {item["key"]: item["itemCount"] for item in potential_keys}
+    if csv_key_counts != dict(computed_key_counts):
+        missing_keys = sorted(computed_key_counts.keys() - csv_key_counts.keys())
+        extra_keys = sorted(csv_key_counts.keys() - computed_key_counts.keys())
+        mismatched_keys = sorted(
+            key
+            for key in computed_key_counts.keys() & csv_key_counts.keys()
+            if computed_key_counts[key] != csv_key_counts[key]
+        )
+        raise ValueError(
+            "Node key statistics do not match the catalog "
+            f"({len(missing_keys)} missing, {len(extra_keys)} extra, {len(mismatched_keys)} count mismatches)."
+        )
+    for item in potential_keys:
+        expected_rate = round(item["itemCount"] * 100 / len(catalog), 2) if catalog else 0
+        if round(item["usageRatePercent"], 2) != expected_rate:
+            raise ValueError(f"Node key statistics have an invalid usage rate for '{item['key']}'.")
 
     definitions_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for position, definition in enumerate(catalog):
@@ -412,6 +471,7 @@ def build_node_map(
                 "hidden": all(item["hidden"] for item in definition_summaries),
                 "catalog": {
                     "definitionCount": len(definitions),
+                    "keys": sorted({key for definition in definitions for key in definition}),
                     "availableVersions": _ordered_unique(
                         version for item in definition_summaries for version in item["versions"]
                     ),
@@ -443,6 +503,10 @@ def build_node_map(
                 "path": str(node_catalog_path),
                 "sha256": hashlib.sha256(catalog_bytes).hexdigest(),
             },
+            "nodeKeyStats": {
+                "path": str(key_stats_path),
+                "sha256": hashlib.sha256(key_stats_bytes).hexdigest(),
+            },
             "workflowDirectory": str(workflow_directory),
         },
         "summary": {
@@ -450,6 +514,7 @@ def build_node_map(
             "nodeTypeCount": len(catalog_types),
             "duplicateNodeTypeCount": duplicate_types,
             "additionalCatalogRecordCount": len(catalog) - len(catalog_types),
+            "potentialKeyCount": len(potential_keys),
             "usedNodeTypeCount": used_catalog_types,
             "unusedNodeTypeCount": len(catalog_types) - used_catalog_types,
             "workflowCount": workflow_count,
@@ -463,6 +528,7 @@ def build_node_map(
             "unmappedNodeInstanceCount": typed_node_instances - catalog_instance_count,
             "workflowCountWithUnmappedNodes": workflows_with_unmapped_nodes,
         },
+        "potentialKeys": potential_keys,
         "nodes": node_records,
         "unmappedNodeTypes": unmapped_records,
     }

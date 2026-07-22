@@ -13,6 +13,7 @@ from .search import (
     DEFAULT_INDEX_PATH,
     DEFAULT_MAP_PATH,
     DEFAULT_NODE_CATALOG_PATH,
+    DEFAULT_NODE_KEY_STATS_PATH,
     DEFAULT_NODE_MAP_PATH,
     DEFAULT_PAGES_INDEX_PATH,
     DEFAULT_WORKFLOW_DIRECTORY,
@@ -63,6 +64,9 @@ def _parser() -> argparse.ArgumentParser:
         "build-node-map", help="Build a node catalog enriched with usage statistics from all workflows."
     )
     node_map.add_argument("--catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH, help="installed node catalog path")
+    node_map.add_argument(
+        "--key-stats", type=_path, default=DEFAULT_NODE_KEY_STATS_PATH, help="CSV containing all catalog key statistics"
+    )
     node_map.add_argument(
         "--workflows", type=_path, default=DEFAULT_WORKFLOW_DIRECTORY, help="directory containing workflow JSON files"
     )
@@ -144,7 +148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{summary.unavailable_node_types:,} unavailable node types found."
             )
         elif args.command == "build-node-map":
-            summary = build_node_map(args.catalog, args.workflows, args.output)
+            summary = build_node_map(args.catalog, args.workflows, args.output, args.key_stats)
             print(
                 f"Built {args.output} from {summary.catalog_records:,} catalog records: "
                 f"{summary.node_types:,} unique node types, {summary.used_node_types:,} used across "

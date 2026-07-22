@@ -50,7 +50,11 @@ uv run n8n-search search --no-default-compatible --min-missing-node-types 2
 `collection/nodes/node-map.json`. The map groups the 919 catalog records by the
 node `type` used in workflow files, while retaining their versioned catalog
 definitions. Each unique type includes workflow and instance counts, percentage
-shares, enabled and disabled instance counts, version usage, and usage ranks.
+shares, enabled and disabled instance counts, version usage, usage ranks, and
+the source keys present in its catalog definitions. Top-level `potentialKeys`
+contains every key from `collection/nodes/stats/all-possible-keys.csv`, together
+with its catalog item count and usage rate. The command validates this CSV
+against `n8n-nodes.json` before replacing the map.
 
 ```bash
 uv run n8n-search build-node-map

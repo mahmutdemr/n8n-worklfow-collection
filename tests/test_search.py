@@ -172,6 +172,7 @@ def test_build_node_map_aggregates_types_workflows_instances_and_versions(tmp_pa
     catalog_path = tmp_path / "n8n-nodes.json"
     workflow_directory = tmp_path / "workflows"
     output_path = tmp_path / "nodes" / "node-map.json"
+    key_stats_path = tmp_path / "all-possible-keys.csv"
     workflow_directory.mkdir()
     catalog_path.write_text(
         json.dumps(
@@ -215,6 +216,19 @@ def test_build_node_map_aggregates_types_workflows_instances_and_versions(tmp_pa
         ),
         encoding="utf-8",
     )
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    key_counts: dict[str, int] = {}
+    for definition in catalog:
+        for key in definition:
+            key_counts[key] = key_counts.get(key, 0) + 1
+    key_stats_path.write_text(
+        "key,item_count,usage_rate_percent\n"
+        + "".join(
+            f"{key},{count},{count * 100 / len(catalog):.2f}\n"
+            for key, count in sorted(key_counts.items(), key=lambda item: (-item[1], item[0]))
+        ),
+        encoding="utf-8",
+    )
     (workflow_directory / "one.json").write_text(
         json.dumps(
             {
@@ -231,7 +245,7 @@ def test_build_node_map_aggregates_types_workflows_instances_and_versions(tmp_pa
         json.dumps({"nodes": [{"type": "n8n-nodes-base.foo", "typeVersion": 2.1}]}), encoding="utf-8"
     )
 
-    result = build_node_map(catalog_path, workflow_directory, output_path)
+    result = build_node_map(catalog_path, workflow_directory, output_path, key_stats_path)
     node_map = json.loads(output_path.read_text(encoding="utf-8"))
     nodes = {node["type"]: node for node in node_map["nodes"]}
 
@@ -239,8 +253,12 @@ def test_build_node_map_aggregates_types_workflows_instances_and_versions(tmp_pa
     assert result.node_types == 2
     assert result.node_instances == 4
     assert node_map["summary"]["additionalCatalogRecordCount"] == 1
+    assert node_map["summary"]["potentialKeyCount"] == len(key_counts)
+    assert {item["key"] for item in node_map["potentialKeys"]} == set(key_counts)
     assert node_map["summary"]["unmappedNodeTypeCount"] == 1
     assert nodes["n8n-nodes-base.foo"]["catalog"]["availableVersions"] == ["2", "2.1", "1"]
+    assert nodes["n8n-nodes-base.foo"]["catalog"]["keys"] == sorted(set(catalog[0]) | set(catalog[1]))
+    assert nodes["n8n-nodes-base.foo"]["catalog"]["definitions"][0]["keys"] == sorted(catalog[0])
     assert nodes["n8n-nodes-base.foo"]["usage"]["workflowCount"] == 2
     assert nodes["n8n-nodes-base.foo"]["usage"]["instanceCount"] == 3
     assert nodes["n8n-nodes-base.foo"]["usage"]["disabledInstanceCount"] == 1
