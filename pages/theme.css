@@ -16,8 +16,9 @@ html[data-theme="light"] .theme-icon { color: #36744e; background: #dff1e5; }
 html[data-theme="light"] .theme-label { color: #5c7167; }
 html[data-theme="light"] .section-nav { border-color: #bdcbc3; background: #ffffffd9; box-shadow: 0 8px 22px #26352b14; }
 html[data-theme="light"] .section-nav a { color: #5c7167; }
-html[data-theme="light"] .section-nav a:hover { color: #203128; }
-html[data-theme="light"] .section-nav a.active { color: #14200f; }
+html[data-theme="light"] .section-nav-label { color: #74887e; }
+html[data-theme="light"] .section-nav a:hover { color: #203128; background: #edf3ef; }
+html[data-theme="light"] .section-nav a.active { color: #26623e; background: #e1f3e6; box-shadow: inset 3px 0 #55a273; }
 html[data-theme="light"] .search-panel { border-color: #cbd8d1; background: #ffffffd9; box-shadow: 0 24px 60px #26352b1c; }
 html[data-theme="light"] .query-field { background: #eef4f0; }
 html[data-theme="light"] .query-field input { color: #18231e; }
@@ -43,3 +44,4 @@ html[data-theme="light"] .page-button { color: #345044; border-color: #bdcbc3; b
 html[data-theme="light"] .pagination { color: #5d7067; }
 
 @media (max-width: 600px) { .theme-label { display: none; } }
+@media (max-width: 1200px) { html[data-theme="light"] .section-nav a.active { box-shadow: none; } }
