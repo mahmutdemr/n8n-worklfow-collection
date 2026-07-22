@@ -260,4 +260,3 @@ fetch(document.body.dataset.indexUrl)
     status.textContent = error.message;
     resultSummary.textContent = error.message;
   });
-

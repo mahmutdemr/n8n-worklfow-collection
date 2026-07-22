@@ -43,4 +43,3 @@ html[data-theme="light"] .metadata-details dd { color: #4c6157; }
 @media (max-width: 1050px) { .node-filter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .node-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .node-filter-grid { grid-template-columns: 1fr; } .usage-metrics strong { font-size: 15px; } .node-rank { max-width: 52%; line-height: 1.35; } }
-
