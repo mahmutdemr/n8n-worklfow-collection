@@ -10,7 +10,16 @@ from pathlib import Path
 from typing import Type
 from urllib.parse import parse_qs, urlparse
 
-from .search import DEFAULT_INDEX_PATH, DEFAULT_MAP_PATH, get_categories, get_stats, resolved_local_file, search_page
+from .search import (
+    DEFAULT_INDEX_PATH,
+    DEFAULT_MAP_PATH,
+    DEFAULT_NODE_MAP_PATH,
+    get_categories,
+    get_stats,
+    public_node_index,
+    resolved_local_file,
+    search_page,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -38,7 +47,9 @@ def _boolean(value: str, name: str) -> bool | None:
     raise ValueError(f"{name} must be true or false.")
 
 
-def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHandler]:
+def create_handler(
+    index_path: Path, map_path: Path, node_map_path: Path = DEFAULT_NODE_MAP_PATH
+) -> Type[SimpleHTTPRequestHandler]:
     """Create a request handler bound to one local index and collection map."""
 
     class WorkflowSearchHandler(SimpleHTTPRequestHandler):
@@ -68,6 +79,14 @@ def create_handler(index_path: Path, map_path: Path) -> Type[SimpleHTTPRequestHa
                 return
             if request.path == "/api/search":
                 self._handle_search(parse_qs(request.query))
+                return
+            if request.path == "/api/nodes-index":
+                try:
+                    self._send_json(HTTPStatus.OK, public_node_index(node_map_path))
+                except FileNotFoundError as error:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                except ValueError as error:
+                    self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
                 return
             super().do_GET()
 
@@ -126,13 +145,14 @@ def serve(
     *,
     index_path: Path = DEFAULT_INDEX_PATH,
     map_path: Path = DEFAULT_MAP_PATH,
+    node_map_path: Path = DEFAULT_NODE_MAP_PATH,
     host: str = "127.0.0.1",
     port: int = 8765,
 ) -> None:
     """Start the local browser UI until interrupted."""
     if not index_path.is_file():
         raise FileNotFoundError(f"Search index was not found: {index_path}. Run 'n8n-search build' first.")
-    server = ThreadingHTTPServer((host, port), create_handler(index_path, map_path))
+    server = ThreadingHTTPServer((host, port), create_handler(index_path, map_path, node_map_path))
     address = f"http://{host}:{server.server_port}"
     print(f"Workflow search is available at {address}")
     print("Press Ctrl+C to stop the server.")

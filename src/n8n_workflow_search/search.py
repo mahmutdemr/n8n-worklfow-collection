@@ -23,6 +23,7 @@ DEFAULT_NODE_MAP_PATH = Path("collection/nodes/node-map.json")
 DEFAULT_WORKFLOW_DIRECTORY = Path("collection/workflows")
 DEFAULT_INDEX_PATH = Path(".n8n-search/workflows.sqlite3")
 DEFAULT_PAGES_INDEX_PATH = Path("pages/search-index.json")
+DEFAULT_NODE_PAGES_INDEX_PATH = Path("pages/node-search-index.json")
 
 
 @dataclass(frozen=True)
@@ -245,6 +246,18 @@ def _ordered_unique(values: Iterable[Any]) -> list[Any]:
     return result
 
 
+def _icon_url(value: Any) -> str | dict[str, str]:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return {
+            variant: url
+            for variant in ("light", "dark")
+            if isinstance(url := value.get(variant), str) and url
+        }
+    return ""
+
+
 def _definition_summary(definition: dict[str, Any]) -> dict[str, Any]:
     codex = definition.get("codex") if isinstance(definition.get("codex"), dict) else {}
     resources = codex.get("resources") if isinstance(codex.get("resources"), dict) else {}
@@ -269,7 +282,7 @@ def _definition_summary(definition: dict[str, Any]) -> dict[str, Any]:
         "categories": [str(category) for category in codex.get("categories") or []],
         "credentials": credentials,
         "documentationUrls": documentation_urls,
-        "iconUrl": str(definition.get("iconUrl") or ""),
+        "iconUrl": _icon_url(definition.get("iconUrl")),
         "usableAsTool": definition.get("usableAsTool") is True,
         "hidden": definition.get("hidden") is True,
     }
@@ -663,6 +676,86 @@ def export_pages_index(
         temporary_path.unlink(missing_ok=True)
         raise
     return len(records)
+
+
+def public_node_index(node_map_path: Path = DEFAULT_NODE_MAP_PATH) -> dict[str, Any]:
+    """Return the public, browser-searchable subset of the local node map."""
+    try:
+        with node_map_path.open(encoding="utf-8") as source:
+            payload = json.load(source)
+    except FileNotFoundError as error:
+        raise FileNotFoundError(f"Node map was not found: {node_map_path}. Run 'n8n-search build-node-map' first.") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Node map is not valid JSON: {node_map_path} ({error})") from error
+    nodes = payload.get("nodes") if isinstance(payload, dict) else None
+    if not isinstance(nodes, list):
+        raise ValueError("Node map must be an object containing a 'nodes' list.")
+
+    records = []
+    for node in nodes:
+        catalog = node.get("catalog") or {}
+        usage = node.get("usage") or {}
+        records.append(
+            {
+                "type": str(node.get("type") or ""),
+                "packageName": str(node.get("packageName") or ""),
+                "name": str(node.get("name") or ""),
+                "displayName": str(node.get("displayName") or ""),
+                "description": str(node.get("description") or ""),
+                "groups": node.get("groups") or [],
+                "categories": node.get("categories") or [],
+                "credentials": node.get("credentials") or [],
+                "documentationUrls": node.get("documentationUrls") or [],
+                "iconUrl": node.get("iconUrl") or "",
+                "usableAsTool": node.get("usableAsTool") is True,
+                "hidden": node.get("hidden") is True,
+                "definitionCount": int(catalog.get("definitionCount") or 0),
+                "keys": catalog.get("keys") or [],
+                "availableVersions": catalog.get("availableVersions") or [],
+                "usage": {
+                    "workflowCount": int(usage.get("workflowCount") or 0),
+                    "workflowPercentage": float(usage.get("workflowPercentage") or 0),
+                    "instanceCount": int(usage.get("instanceCount") or 0),
+                    "instancePercentage": float(usage.get("instancePercentage") or 0),
+                    "averageInstancesPerUsingWorkflow": float(
+                        usage.get("averageInstancesPerUsingWorkflow") or 0
+                    ),
+                    "enabledInstanceCount": int(usage.get("enabledInstanceCount") or 0),
+                    "disabledInstanceCount": int(usage.get("disabledInstanceCount") or 0),
+                    "workflowRank": int(usage.get("workflowRank") or 0),
+                    "instanceRank": int(usage.get("instanceRank") or 0),
+                    "versions": usage.get("versions") or [],
+                },
+            }
+        )
+    return {
+        "schemaVersion": 1,
+        "generatedAt": payload.get("generatedAt"),
+        "summary": payload.get("summary") or {},
+        "potentialKeys": payload.get("potentialKeys") or [],
+        "nodes": records,
+    }
+
+
+def export_node_pages_index(
+    node_map_path: Path = DEFAULT_NODE_MAP_PATH,
+    output_path: Path = DEFAULT_NODE_PAGES_INDEX_PATH,
+) -> int:
+    """Export the minimal public node index used by the GitHub Pages site."""
+    public_index = public_node_index(node_map_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent, delete=False
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+        json.dump(public_index, temporary, ensure_ascii=False, separators=(",", ":"))
+        temporary.write("\n")
+    try:
+        temporary_path.replace(output_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return len(public_index["nodes"])
 
 
 def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_INDEX_PATH) -> int:

@@ -1,0 +1,46 @@
+.node-hero { max-width: 790px; }
+.node-filter-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.node-list { align-items: start; }
+.node-card { min-height: 0; }
+.node-heading { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 13px; margin-top: 18px; }
+.node-icon { display: grid; width: 48px; height: 48px; place-items: center; overflow: hidden; border: 1px solid #34434d; border-radius: 12px; color: #b6f18d; background: #10171f; font: 800 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.node-icon img { display: block; width: 30px; height: 30px; object-fit: contain; }
+.node-heading h2 { margin: 0 0 6px; }
+.node-type { display: block; overflow: hidden; color: #81919b; font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.node-package { max-width: 64%; overflow: hidden; color: #a6e879; text-overflow: ellipsis; white-space: nowrap; }
+.node-rank { text-align: right; }
+.node-description { display: -webkit-box; min-height: 42px; margin: 17px 0; overflow: hidden; color: #98a6af; font-size: 13px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.usage-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.usage-metrics div { display: grid; gap: 5px; padding: 10px; border: 1px solid #2c3944; border-radius: 10px; background: #11182099; }
+.usage-metrics strong { color: #eef5f1; font-size: 16px; letter-spacing: -.02em; }
+.usage-metrics span { color: #74848e; font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }
+.node-card .chips { margin-bottom: 10px; }
+.group-chip { color: #bdc5ec; background: #303349; }
+.tool-chip { color: #bfeaa4; background: #315031; }
+.hidden-chip { color: #ffc68f; background: #503c2b; }
+.node-facts { color: #82919a; font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.metadata-details { margin-top: 14px; border-top: 1px solid #ffffff12; border-bottom: 1px solid #ffffff12; }
+.metadata-details summary { padding: 11px 0; color: #a9b8b1; cursor: pointer; font-size: 11px; font-weight: 700; }
+.metadata-details dl { display: grid; gap: 10px; margin: 0; padding: 0 0 13px; }
+.metadata-details dl div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 9px; }
+.metadata-details dt { color: #71808a; font: 9px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }
+.metadata-details dd { margin: 0; overflow-wrap: anywhere; color: #aebbc2; font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.node-card .result-actions { min-height: 15px; padding-top: 15px; }
+html[data-theme="light"] .node-icon { color: #36744e; border-color: #c3d0c8; background: #eef4f0; }
+html[data-theme="light"] .node-type,
+html[data-theme="light"] .node-description,
+html[data-theme="light"] .node-facts { color: #5d7067; }
+html[data-theme="light"] .usage-metrics div { border-color: #d2ddd7; background: #f5f8f6; }
+html[data-theme="light"] .usage-metrics strong { color: #1e3027; }
+html[data-theme="light"] .usage-metrics span { color: #64776d; }
+html[data-theme="light"] .group-chip { color: #4f5275; background: #e9e9f6; }
+html[data-theme="light"] .tool-chip { color: #26623e; background: #e1f3e6; }
+html[data-theme="light"] .hidden-chip { color: #8a4b12; background: #fff0dd; }
+html[data-theme="light"] .metadata-details { border-color: #d7e1dc; }
+html[data-theme="light"] .metadata-details summary { color: #43564c; }
+html[data-theme="light"] .metadata-details dt { color: #65776e; }
+html[data-theme="light"] .metadata-details dd { color: #4c6157; }
+@media (max-width: 1050px) { .node-filter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .node-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .node-filter-grid { grid-template-columns: 1fr; } .usage-metrics strong { font-size: 15px; } .node-rank { max-width: 52%; line-height: 1.35; } }
+

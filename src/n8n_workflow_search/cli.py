@@ -15,6 +15,7 @@ from .search import (
     DEFAULT_NODE_CATALOG_PATH,
     DEFAULT_NODE_KEY_STATS_PATH,
     DEFAULT_NODE_MAP_PATH,
+    DEFAULT_NODE_PAGES_INDEX_PATH,
     DEFAULT_PAGES_INDEX_PATH,
     DEFAULT_WORKFLOW_DIRECTORY,
     DEFAULT_V2_MAP_PATH,
@@ -23,6 +24,7 @@ from .search import (
     enrich_default_node_compatibility,
     enrich_metadata,
     enrich_node_counts,
+    export_node_pages_index,
     get_categories,
     get_stats,
     resolved_local_file,
@@ -75,6 +77,10 @@ def _parser() -> argparse.ArgumentParser:
     export = subcommands.add_parser("export-pages", help="Export the minimal public index used by the GitHub Pages site.")
     export.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="primary workflow map path")
     export.add_argument("--output", type=_path, default=DEFAULT_PAGES_INDEX_PATH, help="public JSON index path")
+    export.add_argument("--node-file", type=_path, default=DEFAULT_NODE_MAP_PATH, help="local node map path")
+    export.add_argument(
+        "--node-output", type=_path, default=DEFAULT_NODE_PAGES_INDEX_PATH, help="public node JSON index path"
+    )
 
     query = subcommands.add_parser("search", help="Search workflow metadata.")
     query.add_argument("query", nargs="?", default="", help="Optional words to search for")
@@ -108,6 +114,7 @@ def _parser() -> argparse.ArgumentParser:
     web = subcommands.add_parser("serve", help="Open the local browser search interface.")
     web.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path used to resolve local files")
     web.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
+    web.add_argument("--node-map", type=_path, default=DEFAULT_NODE_MAP_PATH, help="node-map.json path")
     web.add_argument("--host", default="127.0.0.1", help="Host to listen on (default: 127.0.0.1)")
     web.add_argument("--port", type=int, default=8765, help="Port to listen on (default: 8765)")
     return parser
@@ -156,8 +163,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{summary.unmapped_node_types:,} workflow node types are not in the catalog."
             )
         elif args.command == "export-pages":
-            count = export_pages_index(args.file, args.output)
-            print(f"Exported {count:,} workflows to {args.output}.")
+            workflow_count = export_pages_index(args.file, args.output)
+            node_count = export_node_pages_index(args.node_file, args.node_output)
+            print(
+                f"Exported {workflow_count:,} workflows to {args.output} and "
+                f"{node_count:,} nodes to {args.node_output}."
+            )
         elif args.command == "search":
             results = search(
                 args.query,
@@ -206,7 +217,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     parent = f" · {category.parent_name}" if category.parent_name else ""
                     print(f"[{category.id}] {category.label}: {category.workflow_count:,}{parent}")
         elif args.command == "serve":
-            serve(index_path=args.index, map_path=args.file, host=args.host, port=args.port)
+            serve(
+                index_path=args.index, map_path=args.file, node_map_path=args.node_map,
+                host=args.host, port=args.port,
+            )
     except (FileNotFoundError, ValueError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2

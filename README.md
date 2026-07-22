@@ -77,6 +77,15 @@ same local index as the command-line tool. It does not upload the collection;
 press `Ctrl+C` in the terminal to stop it. Use `--port 9000` or `--host 0.0.0.0`
 only when you specifically need another address.
 
+The site has two independent collection views:
+
+- `/` searches workflow examples.
+- `/nodes/` explores installed node types, catalog metadata, and usage across workflows.
+
+The Node Explorer supports text search plus category, group, package, source-key,
+usage, capability, and minimum-usage filters. Both pages share navigation and the
+same system/light/dark theme preference.
+
 ## Search examples
 
 ```bash
@@ -111,8 +120,8 @@ SQLite index.
 ## GitHub Pages
 
 `pages/` contains a standalone public search site. It does not publish workflow JSON
-files or local file paths. Regenerate its small public search index after updating the
-local map, then commit the `pages/` directory:
+files, raw node definitions, or local file paths. Regenerate both public search indexes
+after updating either local map, then commit the `pages/` directory:
 
 ```bash
 uv run n8n-search export-pages

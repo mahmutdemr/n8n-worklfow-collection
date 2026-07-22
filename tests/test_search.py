@@ -9,6 +9,7 @@ from n8n_workflow_search.search import (
     enrich_default_node_compatibility,
     enrich_metadata,
     enrich_node_counts,
+    export_node_pages_index,
     export_pages_index,
     get_categories,
     get_stats,
@@ -291,6 +292,64 @@ def test_pages_export_contains_only_public_search_metadata(tmp_path: Path) -> No
     assert record["missingNodeTypes"] == ["n8n-nodes-extra.foo"]
     assert "file" not in record
     assert "workflowIds" not in exported["categories"][0]
+
+
+def test_node_pages_export_contains_search_metadata_without_local_sources(tmp_path: Path) -> None:
+    map_path = tmp_path / "node-map.json"
+    output_path = tmp_path / "pages" / "node-search-index.json"
+    map_path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "generatedAt": "2026-07-23T00:00:00Z",
+                "sources": {"workflowDirectory": "/private/workflows"},
+                "summary": {"nodeTypeCount": 1, "usedNodeTypeCount": 1},
+                "potentialKeys": [{"key": "credentials", "itemCount": 1, "usageRatePercent": 100}],
+                "nodes": [
+                    {
+                        "type": "n8n-nodes-base.foo",
+                        "packageName": "n8n-nodes-base",
+                        "name": "foo",
+                        "displayName": "Foo",
+                        "description": "Test node",
+                        "groups": ["transform"],
+                        "categories": ["Data & Storage"],
+                        "credentials": ["fooApi"],
+                        "documentationUrls": ["https://example.test/foo"],
+                        "iconUrl": {"light": "https://example.test/light.svg", "dark": "https://example.test/dark.svg"},
+                        "usableAsTool": True,
+                        "hidden": False,
+                        "catalog": {
+                            "definitionCount": 2,
+                            "keys": ["credentials"],
+                            "availableVersions": ["1", "2"],
+                            "definitions": [{"keys": ["credentials"]}],
+                        },
+                        "usage": {
+                            "workflowCount": 4,
+                            "workflowPercentage": 20,
+                            "instanceCount": 6,
+                            "instancePercentage": 10,
+                            "workflowRank": 1,
+                            "instanceRank": 1,
+                            "versions": [{"version": "2", "workflowCount": 4, "instanceCount": 6}],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert export_node_pages_index(map_path, output_path) == 1
+    exported = json.loads(output_path.read_text(encoding="utf-8"))
+    record = exported["nodes"][0]
+
+    assert record["keys"] == ["credentials"]
+    assert record["iconUrl"]["dark"].endswith("dark.svg")
+    assert record["usage"]["workflowCount"] == 4
+    assert "sources" not in exported
+    assert "definitions" not in record
 
 
 def test_web_handler_binds_the_selected_paths(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-.theme-control { position: absolute; top: 82px; right: 0; display: flex; align-items: center; gap: 7px; margin: 0; padding: 5px 7px; border: 1px solid #34434d; border-radius: 9px; color: #8ea09a; background: #17202ad9; box-shadow: 0 8px 22px #00000020; font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .07em; text-transform: uppercase; }
+.theme-control { display: flex; align-items: center; gap: 7px; margin: 0; padding: 5px 7px; border: 1px solid #34434d; border-radius: 9px; color: #8ea09a; background: #17202ad9; box-shadow: 0 8px 22px #00000020; font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .07em; text-transform: uppercase; }
 .theme-icon { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 6px; color: #b6f18d; background: #a6e87918; font: 15px/1 ui-sans-serif, system-ui, sans-serif; }
 .theme-label { color: #8ea09a; }
 .theme-control select { height: 28px; padding: 0 5px; border: 0; border-radius: 5px; color: #e0e9e5; background: transparent; outline: 0; font: 600 11px/1 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; text-transform: none; }
@@ -14,6 +14,10 @@ html[data-theme="light"] .theme-control { border-color: #bdcbc3; background: #ff
 html[data-theme="light"] .theme-control select { color: #2f453a; }
 html[data-theme="light"] .theme-icon { color: #36744e; background: #dff1e5; }
 html[data-theme="light"] .theme-label { color: #5c7167; }
+html[data-theme="light"] .section-nav { border-color: #bdcbc3; background: #ffffffd9; box-shadow: 0 8px 22px #26352b14; }
+html[data-theme="light"] .section-nav a { color: #5c7167; }
+html[data-theme="light"] .section-nav a:hover { color: #203128; }
+html[data-theme="light"] .section-nav a.active { color: #14200f; }
 html[data-theme="light"] .search-panel { border-color: #cbd8d1; background: #ffffffd9; box-shadow: 0 24px 60px #26352b1c; }
 html[data-theme="light"] .query-field { background: #eef4f0; }
 html[data-theme="light"] .query-field input { color: #18231e; }
@@ -38,4 +42,4 @@ html[data-theme="light"] .copy-path { color: #53665d; }
 html[data-theme="light"] .page-button { color: #345044; border-color: #bdcbc3; background: #fff; }
 html[data-theme="light"] .pagination { color: #5d7067; }
 
-@media (max-width: 600px) { .theme-control { top: 44px; right: 0; } .theme-label { display: none; } }
+@media (max-width: 600px) { .theme-label { display: none; } }

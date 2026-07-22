@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10151d">
+    <title>n8n Node Explorer</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/theme.css">
+    <link rel="stylesheet" href="/nodes/node.css">
+    <script>
+      (() => {
+        try {
+          const preference = localStorage.getItem("n8n-workflow-theme") || "system";
+          document.documentElement.dataset.theme = preference === "system"
+            ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+            : preference;
+        } catch { /* Use the dark default when storage is unavailable. */ }
+      })();
+    </script>
+    <script src="/nodes/app.js" defer></script>
+  </head>
+  <body data-index-url="/api/nodes-index">
+    <main class="shell">
+      <div class="site-toolbar">
+        <nav class="section-nav" aria-label="Collection sections">
+          <a href="/"><span aria-hidden="true">◇</span> Workflows</a>
+          <a class="active" href="/nodes/" aria-current="page"><span aria-hidden="true">⬡</span> Nodes</a>
+        </nav>
+        <label class="theme-control">
+          <span class="theme-icon" id="theme-icon" aria-hidden="true">◐</span>
+          <span class="theme-label">Theme</span>
+          <select id="theme-select" aria-label="Color theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+      </div>
+
+      <header class="hero node-hero">
+        <div class="eyebrow"><span class="pulse"></span> Installed node catalog</div>
+        <p class="lede">Explore n8n nodes by capability, package, source metadata, and real usage across the workflow collection.</p>
+        <p class="index-status" id="index-status" aria-live="polite">Loading node index…</p>
+      </header>
+
+      <section class="search-panel" aria-label="Node search">
+        <form id="search-form">
+          <label class="query-field" for="query">
+            <span class="search-mark" aria-hidden="true">⌕</span>
+            <input id="query" name="q" type="search" placeholder="Try “OpenAI”, “trigger”, “credentials”, “iconUrl”…" autocomplete="off" autofocus>
+            <kbd>/</kbd>
+          </label>
+          <div class="controls">
+            <div class="filter-grid node-filter-grid">
+              <label>Match <select name="mode"><option value="all">all words</option><option value="any">any word</option></select></label>
+              <label>Category <select name="category" id="category"><option value="">All categories</option></select></label>
+              <label>Group <select name="group" id="group"><option value="">All groups</option></select></label>
+              <label>Package <select name="package" id="package"><option value="">All packages</option></select></label>
+              <label>Source key <select name="key" id="source-key"><option value="">All source keys</option></select></label>
+              <label>Usage <select name="usage"><option value="">All nodes</option><option value="used">Used in workflows</option><option value="unused">Not used</option></select></label>
+              <label>Capability <select name="capability"><option value="">All capabilities</option><option value="tool">Usable as AI tool</option><option value="credentials">Requires credentials</option><option value="hidden">Hidden nodes</option></select></label>
+              <label>Min. workflows <input name="min_workflows" type="number" min="0" inputmode="numeric" placeholder="0"></label>
+              <label>Min. instances <input name="min_instances" type="number" min="0" inputmode="numeric" placeholder="0"></label>
+              <label>Sort by <select name="sort"><option value="rank">Relevance</option><option value="workflows">Most workflows</option><option value="instances">Most instances</option><option value="name">Name A–Z</option></select></label>
+            </div>
+            <div class="filter-actions"><button class="clear" type="button" id="clear">Clear</button><button class="submit" type="submit">Search <span aria-hidden="true">↗</span></button></div>
+          </div>
+        </form>
+      </section>
+
+      <section class="results" aria-live="polite" aria-busy="false">
+        <div class="results-heading"><p id="result-summary">Loading nodes…</p><span id="loading" hidden>Searching…</span></div>
+        <div id="result-list" class="result-list node-list"></div>
+        <nav class="pagination" id="pagination" aria-label="Search result pages" hidden><button class="page-button" id="previous-page" type="button">← Previous</button><span id="page-status"></span><button class="page-button" id="next-page" type="button">Next →</button></nav>
+      </section>
+    </main>
+
+    <template id="result-template">
+      <article class="result-card node-card">
+        <div class="result-topline"><span class="node-package"></span><span class="node-rank"></span></div>
+        <div class="node-heading"><div class="node-icon"><img alt="" hidden><span aria-hidden="true"></span></div><div><h2></h2><code class="node-type"></code></div></div>
+        <p class="node-description"></p>
+        <div class="usage-metrics"><div><strong class="workflow-count"></strong><span>workflows</span></div><div><strong class="instance-count"></strong><span>instances</span></div><div><strong class="workflow-share"></strong><span>workflow reach</span></div></div>
+        <div class="chips"></div>
+        <div class="node-facts"></div>
+        <details class="metadata-details"><summary>Metadata details</summary><dl><div><dt>Versions</dt><dd class="versions"></dd></div><div><dt>Credentials</dt><dd class="credentials"></dd></div><div><dt>Source keys</dt><dd class="source-keys"></dd></div></dl></details>
+        <div class="result-actions"><a class="gallery documentation" target="_blank" rel="noreferrer">Documentation <span aria-hidden="true">↗</span></a></div>
+      </article>
+    </template>
+  </body>
+</html>
