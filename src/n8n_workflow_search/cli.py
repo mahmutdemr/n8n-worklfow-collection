@@ -26,6 +26,9 @@ from .search import (
     DEFAULT_NODE_PAGES_ICON_DIRECTORY,
     DEFAULT_NODE_PAGES_INDEX_PATH,
     DEFAULT_PAGES_INDEX_PATH,
+    DEFAULT_PAGES_WORKFLOW_MERMAID_DIRECTORY,
+    DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
+    DEFAULT_WORKFLOW_MERMAID_BUCKET_COUNT,
     DEFAULT_WORKFLOW_DIRECTORY,
     DEFAULT_V2_MAP_PATH,
     build_index,
@@ -39,6 +42,8 @@ from .search import (
     resolved_local_file,
     search,
     export_pages_index,
+    export_workflow_mermaid_pages,
+    generate_workflow_mermaid,
 )
 from .web import serve
 
@@ -85,6 +90,29 @@ def _parser() -> argparse.ArgumentParser:
     )
     node_map.add_argument("--output", type=_path, default=DEFAULT_NODE_MAP_PATH, help="generated node map path")
 
+    mermaid = subcommands.add_parser(
+        "generate-workflow-mermaid",
+        help="Generate static Mermaid source files for every workflow through n8n-to-mermaid.",
+    )
+    mermaid.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path")
+    mermaid.add_argument(
+        "--output", type=_path, default=DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
+        help="generated Mermaid source directory",
+    )
+    mermaid.add_argument(
+        "--api-url", default="http://localhost:8080/api/v1/convert",
+        help="n8n-to-mermaid conversion endpoint",
+    )
+    mermaid.add_argument("--direction", choices=("TB", "TD", "BT", "RL", "LR"), default="LR")
+    mermaid.add_argument(
+        "--exclude-disabled", action="store_true", help="omit disabled nodes from generated diagrams"
+    )
+    mermaid.add_argument("--workers", type=int, default=8, help="parallel API requests (default: 8)")
+    mermaid.add_argument(
+        "--buckets", type=int, default=DEFAULT_WORKFLOW_MERMAID_BUCKET_COUNT,
+        help="number of generated JSON buckets (default: 64)",
+    )
+
     icons = subcommands.add_parser(
         "download-node-icons", help="Download and catalog a local icon for every installed node type."
     )
@@ -115,6 +143,14 @@ def _parser() -> argparse.ArgumentParser:
     export.add_argument(
         "--node-catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH,
         help="installed node catalog used for raw detail JSON",
+    )
+    export.add_argument(
+        "--workflow-mermaid", type=_path, default=DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
+        help="local generated workflow Mermaid directory",
+    )
+    export.add_argument(
+        "--workflow-mermaid-output", type=_path, default=DEFAULT_PAGES_WORKFLOW_MERMAID_DIRECTORY,
+        help="public workflow Mermaid directory",
     )
 
     query = subcommands.add_parser("search", help="Search workflow metadata.")
@@ -159,6 +195,10 @@ def _parser() -> argparse.ArgumentParser:
     web.add_argument(
         "--node-catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH,
         help="installed node catalog used by the node detail panel",
+    )
+    web.add_argument(
+        "--workflow-mermaid", type=_path, default=DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
+        help="generated workflow Mermaid directory used by the detail panel",
     )
     web.add_argument("--host", default="127.0.0.1", help="Host to listen on (default: 127.0.0.1)")
     web.add_argument("--port", type=int, default=8765, help="Port to listen on (default: 8765)")
@@ -210,6 +250,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{summary.workflows:,} workflows and {summary.node_instances:,} node instances; "
                 f"{summary.unmapped_node_types:,} workflow node types are not in the catalog."
             )
+        elif args.command == "generate-workflow-mermaid":
+            summary = generate_workflow_mermaid(
+                args.file,
+                args.output,
+                api_url=args.api_url,
+                direction=args.direction,
+                include_disabled=not args.exclude_disabled,
+                workers=args.workers,
+                bucket_count=args.buckets,
+            )
+            print(
+                f"Generated Mermaid for {summary.successful:,}/{summary.workflows:,} workflows "
+                f"({summary.bytes:,} bytes); {summary.failed:,} conversions failed."
+            )
         elif args.command == "download-node-icons":
             summary = download_node_icons(
                 args.catalog,
@@ -227,7 +281,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{summary.fallback_node_types:,} fallback node types."
             )
         elif args.command == "export-pages":
-            workflow_count = export_pages_index(args.file, args.output)
+            workflow_count = export_pages_index(args.file, args.output, args.workflow_mermaid)
+            mermaid_count = export_workflow_mermaid_pages(
+                args.workflow_mermaid, args.workflow_mermaid_output
+            )
             node_count = export_node_pages_index(
                 args.node_file,
                 args.node_output,
@@ -237,7 +294,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(
                 f"Exported {workflow_count:,} workflows to {args.output} and "
-                f"{node_count:,} nodes to {args.node_output}."
+                f"{node_count:,} nodes to {args.node_output}, and "
+                f"{mermaid_count:,} workflow diagrams to {args.workflow_mermaid_output}."
             )
         elif args.command == "search":
             results = search(
@@ -292,6 +350,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             serve(
                 index_path=args.index, map_path=args.file, node_map_path=args.node_map,
                 node_catalog_path=args.node_catalog,
+                workflow_mermaid_directory=args.workflow_mermaid,
                 host=args.host, port=args.port,
             )
     except (FileNotFoundError, ValueError, OSError) as error:

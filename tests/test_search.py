@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from n8n_workflow_search.search import (
     enrich_node_counts,
     export_node_pages_index,
     export_pages_index,
+    export_workflow_mermaid_pages,
     get_categories,
     get_stats,
     get_workflow_node_types,
@@ -308,6 +310,8 @@ def test_build_node_map_aggregates_types_workflows_instances_and_versions(tmp_pa
 def test_pages_export_contains_only_public_search_metadata(tmp_path: Path) -> None:
     map_path = tmp_path / "workflow-map.json"
     output_path = tmp_path / "pages" / "search-index.json"
+    mermaid_directory = tmp_path / "workflow-mermaid"
+    public_mermaid_directory = tmp_path / "pages" / "workflow-mermaid"
     _write_map(map_path)
     payload = json.loads(map_path.read_text(encoding="utf-8"))
     payload["workflows"][0]["defaultNodeCompatibility"] = {
@@ -318,14 +322,67 @@ def test_pages_export_contains_only_public_search_metadata(tmp_path: Path) -> No
         "missingNodePackages": ["n8n-nodes-extra"],
     }
     map_path.write_text(json.dumps(payload), encoding="utf-8")
+    mermaid_directory.mkdir()
+    mermaid_source = "flowchart LR\n    n1[\"Slack\"]\n"
+    bucket_bodies = {
+        "00.json": b"{}\n",
+        "01.json": (json.dumps({"1": mermaid_source}, separators=(",", ":")) + "\n").encode(),
+    }
+    for filename, body in bucket_bodies.items():
+        (mermaid_directory / filename).write_bytes(body)
+    (mermaid_directory / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 2,
+                "generatedAt": "2026-07-23T00:00:00Z",
+                "mapSha256": hashlib.sha256(map_path.read_bytes()).hexdigest(),
+                "direction": "LR",
+                "bucketCount": 2,
+                "buckets": [
+                    {
+                        "file": filename,
+                        "workflowCount": int(filename == "01.json"),
+                        "bytes": len(body),
+                        "sha256": hashlib.sha256(body).hexdigest(),
+                    }
+                    for filename, body in bucket_bodies.items()
+                ],
+                "summary": {
+                    "workflowCount": 2,
+                    "successful": 1,
+                    "failed": 1,
+                    "bytes": len(mermaid_source),
+                    "bucketBytes": sum(map(len, bucket_bodies.values())),
+                },
+                "workflows": [
+                    {
+                        "id": 1,
+                        "status": "success",
+                        "bucket": "01.json",
+                        "bytes": len(mermaid_source),
+                        "sha256": hashlib.sha256(mermaid_source.encode()).hexdigest(),
+                    },
+                    {"id": 2, "status": "error", "error": "Duplicate node names"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
-    assert export_pages_index(map_path, output_path) == 2
+    assert export_pages_index(map_path, output_path, mermaid_directory) == 2
+    assert export_workflow_mermaid_pages(mermaid_directory, public_mermaid_directory) == 1
     exported = json.loads(output_path.read_text(encoding="utf-8"))
     record = exported["workflows"][0]
 
     assert record["missingNodeTypes"] == ["n8n-nodes-extra.foo"]
     assert record["nodeTypes"] == ["n8n-nodes-base.postgres", "n8n-nodes-base.slack"]
-    assert exported["schemaVersion"] == 2
+    assert record["mermaidAvailable"] is True
+    assert exported["workflows"][1]["mermaidError"] == "Duplicate node names"
+    assert exported["mermaid"]["successful"] == 1
+    assert exported["mermaid"]["bucketCount"] == 2
+    assert json.loads((public_mermaid_directory / "01.json").read_text(encoding="utf-8"))["1"] == mermaid_source
+    assert len(list(public_mermaid_directory.glob("*.json"))) == 2
+    assert exported["schemaVersion"] == 3
     assert {item["type"] for item in exported["nodeTypes"]} == {
         "n8n-nodes-base.notion",
         "n8n-nodes-base.postgres",

@@ -16,8 +16,11 @@ from .search import (
     DEFAULT_MAP_PATH,
     DEFAULT_NODE_CATALOG_PATH,
     DEFAULT_NODE_MAP_PATH,
+    DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
     get_categories,
     get_stats,
+    get_workflow_by_id,
+    get_workflow_mermaid_source,
     get_workflow_node_types,
     node_detail_payloads,
     public_node_index,
@@ -56,6 +59,7 @@ def create_handler(
     map_path: Path,
     node_map_path: Path = DEFAULT_NODE_MAP_PATH,
     node_catalog_path: Path | None = None,
+    workflow_mermaid_directory: Path = DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
 ) -> Type[SimpleHTTPRequestHandler]:
     """Create a request handler bound to one local index and collection map."""
 
@@ -95,6 +99,11 @@ def create_handler(
             if request.path == "/api/search":
                 self._handle_search(parse_qs(request.query))
                 return
+            if request.path.startswith("/api/workflows/"):
+                self._handle_workflow_detail(
+                    unquote(request.path.removeprefix("/api/workflows/"))
+                )
+                return
             if request.path == "/api/nodes-index":
                 try:
                     self._send_json(HTTPStatus.OK, public_node_index(node_map_path))
@@ -109,7 +118,49 @@ def create_handler(
             if request.path.startswith("/api/node-details/"):
                 self._handle_node_detail(unquote(request.path.removeprefix("/api/node-details/")))
                 return
+            if request.path.startswith("/api/workflow-mermaid/"):
+                self._handle_workflow_mermaid(
+                    unquote(request.path.removeprefix("/api/workflow-mermaid/"))
+                )
+                return
             super().do_GET()
+
+        def _handle_workflow_detail(self, workflow_id_text: str) -> None:
+            if not workflow_id_text.isdigit():
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            workflow = get_workflow_by_id(int(workflow_id_text), index_path)
+            if workflow is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            payload = asdict(workflow)
+            payload["local_file"] = str(resolved_local_file(workflow, map_path))
+            self._send_json(HTTPStatus.OK, payload)
+
+        def _handle_workflow_mermaid(self, filename: str) -> None:
+            if not filename.endswith(".mmd") or not filename.removesuffix(".mmd").isdigit():
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            try:
+                mermaid = get_workflow_mermaid_source(
+                    int(filename.removesuffix(".mmd")), workflow_mermaid_directory
+                )
+            except FileNotFoundError as error:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except ValueError as error:
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
+                return
+            if mermaid is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            body = mermaid.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
         def _handle_node_detail(self, filename: str) -> None:
             nonlocal detail_payload_cache
@@ -211,6 +262,7 @@ def serve(
     map_path: Path = DEFAULT_MAP_PATH,
     node_map_path: Path = DEFAULT_NODE_MAP_PATH,
     node_catalog_path: Path = DEFAULT_NODE_CATALOG_PATH,
+    workflow_mermaid_directory: Path = DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
     host: str = "127.0.0.1",
     port: int = 8765,
 ) -> None:
@@ -218,7 +270,14 @@ def serve(
     if not index_path.is_file():
         raise FileNotFoundError(f"Search index was not found: {index_path}. Run 'n8n-search build' first.")
     server = ThreadingHTTPServer(
-        (host, port), create_handler(index_path, map_path, node_map_path, node_catalog_path)
+        (host, port),
+        create_handler(
+            index_path,
+            map_path,
+            node_map_path,
+            node_catalog_path,
+            workflow_mermaid_directory,
+        ),
     )
     address = f"http://{host}:{server.server_port}"
     print(f"Workflow search is available at {address}")

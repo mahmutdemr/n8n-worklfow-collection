@@ -11,10 +11,14 @@ import shutil
 import sqlite3
 import tempfile
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 DEFAULT_MAP_PATH = Path("collection/workflow-map.json")
 DEFAULT_V2_MAP_PATH = Path("collection/workflow-map-v2.json")
@@ -27,6 +31,9 @@ DEFAULT_PAGES_INDEX_PATH = Path("pages/search-index.json")
 DEFAULT_NODE_PAGES_INDEX_PATH = Path("pages/node-search-index.json")
 DEFAULT_NODE_PAGES_ICON_DIRECTORY = Path("pages/node-icons")
 DEFAULT_NODE_PAGES_DETAIL_DIRECTORY = Path("pages/node-details")
+DEFAULT_WORKFLOW_MERMAID_DIRECTORY = Path("collection/workflow-mermaid")
+DEFAULT_PAGES_WORKFLOW_MERMAID_DIRECTORY = Path("pages/workflow-mermaid")
+DEFAULT_WORKFLOW_MERMAID_BUCKET_COUNT = 64
 
 
 @dataclass(frozen=True)
@@ -90,6 +97,14 @@ class NodeMapSummary:
     node_instances: int
     used_node_types: int
     unmapped_node_types: int
+
+
+@dataclass(frozen=True)
+class WorkflowMermaidSummary:
+    workflows: int
+    successful: int
+    failed: int
+    bytes: int
 
 
 @dataclass(frozen=True)
@@ -669,8 +684,279 @@ def enrich_default_node_compatibility(
     return CompatibilitySummary(len(workflows), compatible_workflows, len(unavailable_types))
 
 
+def _mermaid_api_error(error: HTTPError) -> str:
+    try:
+        payload = json.loads(error.read().decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return f"Mermaid conversion API returned HTTP {error.code}."
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    return str(detail or f"Mermaid conversion API returned HTTP {error.code}.")
+
+
+def generate_workflow_mermaid(
+    map_path: Path = DEFAULT_MAP_PATH,
+    output_directory: Path = DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
+    *,
+    api_url: str = "http://localhost:8080/api/v1/convert",
+    direction: str = "LR",
+    include_disabled: bool = True,
+    workers: int = 8,
+    bucket_count: int = DEFAULT_WORKFLOW_MERMAID_BUCKET_COUNT,
+) -> WorkflowMermaidSummary:
+    """Generate bucketed Mermaid sources for all workflows through n8n-to-mermaid."""
+    if direction not in {"TB", "TD", "BT", "RL", "LR"}:
+        raise ValueError("Mermaid direction must be one of: TB, TD, BT, RL, LR.")
+    if workers < 1 or workers > 32:
+        raise ValueError("Mermaid workers must be between 1 and 32.")
+    if bucket_count < 1 or bucket_count > 256:
+        raise ValueError("Mermaid bucket count must be between 1 and 256.")
+    payload, workflows = _load_workflows(map_path)
+    parameters = urlencode(
+        {"direction": direction, "include_disabled": str(include_disabled).lower()}
+    )
+    request_url = f"{api_url}{'&' if '?' in api_url else '?'}{parameters}"
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
+    probe = Request(
+        request_url,
+        data=b'{"name":"n8n collection probe","nodes":[],"connections":{}}',
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urlopen(probe, timeout=30) as response:
+            probe_payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(probe_payload, dict) or not isinstance(probe_payload.get("mermaid"), str):
+            raise ValueError("Mermaid conversion API returned an invalid probe response.")
+    except HTTPError as error:
+        raise ValueError(_mermaid_api_error(error)) from error
+    except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Mermaid conversion API is unavailable at {api_url}: {error}") from error
+
+    output_directory.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".workflow-mermaid.", dir=output_directory.parent))
+
+    def bucket_filename(bucket: int) -> str:
+        width = max(2, len(str(bucket_count - 1)))
+        return f"{bucket:0{width}d}.json"
+
+    def convert(workflow: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        workflow_id = int(workflow["id"])
+        workflow_path = map_path.parent / str(workflow.get("file") or "")
+        try:
+            body = workflow_path.read_bytes()
+            request = Request(request_url, data=body, headers=headers, method="POST")
+            with urlopen(request, timeout=60) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+            mermaid = response_payload.get("mermaid") if isinstance(response_payload, dict) else None
+            if not isinstance(mermaid, str) or not mermaid.startswith("flowchart "):
+                raise ValueError("Mermaid conversion API returned an invalid diagram.")
+            encoded = mermaid.encode("utf-8")
+            return (
+                {
+                    "id": workflow_id,
+                    "status": "success",
+                    "bucket": bucket_filename(workflow_id % bucket_count),
+                    "bytes": len(encoded),
+                    "sha256": hashlib.sha256(encoded).hexdigest(),
+                },
+                mermaid,
+            )
+        except HTTPError as error:
+            message = _mermaid_api_error(error)
+        except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+            message = str(error)
+        return {"id": workflow_id, "status": "error", "error": message}, None
+
+    try:
+        records: list[dict[str, Any]] = []
+        mermaid_by_id: dict[int, str] = {}
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(convert, workflow) for workflow in workflows]
+            for future in as_completed(futures):
+                record, mermaid = future.result()
+                records.append(record)
+                if mermaid is not None:
+                    mermaid_by_id[int(record["id"])] = mermaid
+        records.sort(key=lambda item: item["id"])
+        successful = sum(record["status"] == "success" for record in records)
+        failed = len(records) - successful
+        output_bytes = sum(int(record.get("bytes") or 0) for record in records)
+        buckets = []
+        bucket_bytes = 0
+        for bucket in range(bucket_count):
+            filename = bucket_filename(bucket)
+            bucket_payload = {
+                str(workflow_id): mermaid_by_id[workflow_id]
+                for workflow_id in sorted(mermaid_by_id)
+                if workflow_id % bucket_count == bucket
+            }
+            body = (
+                json.dumps(bucket_payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+            ).encode("utf-8")
+            (staging / filename).write_bytes(body)
+            bucket_bytes += len(body)
+            buckets.append(
+                {
+                    "file": filename,
+                    "workflowCount": len(bucket_payload),
+                    "bytes": len(body),
+                    "sha256": hashlib.sha256(body).hexdigest(),
+                }
+            )
+        manifest = {
+            "schemaVersion": 2,
+            "generatedAt": datetime.now(UTC).isoformat(),
+            "mapGeneratedAt": payload.get("generatedAt"),
+            "mapSha256": hashlib.sha256(map_path.read_bytes()).hexdigest(),
+            "converterApi": api_url,
+            "direction": direction,
+            "includeDisabled": include_disabled,
+            "bucketCount": bucket_count,
+            "buckets": buckets,
+            "summary": {
+                "workflowCount": len(workflows),
+                "successful": successful,
+                "failed": failed,
+                "bytes": output_bytes,
+                "bucketBytes": bucket_bytes,
+            },
+            "workflows": records,
+        }
+        with (staging / "manifest.json").open("w", encoding="utf-8") as output:
+            json.dump(manifest, output, ensure_ascii=False, separators=(",", ":"))
+            output.write("\n")
+
+        backup = output_directory.parent / f".{output_directory.name}.backup"
+        if backup.exists():
+            shutil.rmtree(backup)
+        if output_directory.exists():
+            output_directory.replace(backup)
+        try:
+            staging.replace(output_directory)
+        except BaseException:
+            if backup.exists() and not output_directory.exists():
+                backup.replace(output_directory)
+            raise
+        else:
+            if backup.exists():
+                shutil.rmtree(backup)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    return WorkflowMermaidSummary(len(workflows), successful, failed, output_bytes)
+
+
+def _workflow_mermaid_manifest(
+    directory: Path = DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
+) -> tuple[dict[str, Any], dict[int, dict[str, Any]]]:
+    manifest_path = directory / "manifest.json"
+    if not manifest_path.is_file():
+        return {}, {}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Workflow Mermaid manifest is not valid JSON: {manifest_path} ({error})") from error
+    records = manifest.get("workflows") if isinstance(manifest, dict) else None
+    if not isinstance(records, list):
+        raise ValueError("Workflow Mermaid manifest must contain a 'workflows' list.")
+    bucket_count = manifest.get("bucketCount")
+    buckets = manifest.get("buckets")
+    if not isinstance(bucket_count, int) or bucket_count < 1:
+        raise ValueError("Workflow Mermaid manifest must contain a positive bucketCount.")
+    if not isinstance(buckets, list) or len(buckets) != bucket_count:
+        raise ValueError("Workflow Mermaid manifest bucket list does not match bucketCount.")
+    by_id = {int(record["id"]): record for record in records if isinstance(record, dict) and "id" in record}
+    if len(by_id) != len(records):
+        raise ValueError("Workflow Mermaid manifest contains invalid or duplicate workflow ids.")
+    bucket_files = [str(bucket.get("file") or "") for bucket in buckets if isinstance(bucket, dict)]
+    if len(bucket_files) != bucket_count:
+        raise ValueError("Workflow Mermaid manifest contains invalid bucket records.")
+    for workflow_id, record in by_id.items():
+        if record.get("status") == "success" and record.get("bucket") != bucket_files[workflow_id % bucket_count]:
+            raise ValueError(f"Workflow {workflow_id} is assigned to the wrong Mermaid bucket.")
+    return manifest, by_id
+
+
+def export_workflow_mermaid_pages(
+    source_directory: Path = DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
+    output_directory: Path = DEFAULT_PAGES_WORKFLOW_MERMAID_DIRECTORY,
+) -> int:
+    """Copy validated Mermaid sources into the public GitHub Pages package."""
+    manifest, records = _workflow_mermaid_manifest(source_directory)
+    if not manifest:
+        raise FileNotFoundError(
+            f"Workflow Mermaid manifest was not found in {source_directory}. "
+            "Run 'n8n-search generate-workflow-mermaid' first."
+        )
+    output_directory.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".workflow-mermaid-pages.", dir=output_directory.parent))
+    successful = int((manifest.get("summary") or {}).get("successful") or 0)
+    try:
+        seen_filenames: set[str] = set()
+        for bucket in manifest["buckets"]:
+            filename = str(bucket.get("file") or "") if isinstance(bucket, dict) else ""
+            if not re.fullmatch(r"\d+\.json", filename) or filename in seen_filenames:
+                raise ValueError(f"Workflow Mermaid manifest has an invalid bucket filename: {filename}")
+            seen_filenames.add(filename)
+            source = source_directory / filename
+            if not source.is_file():
+                raise FileNotFoundError(f"Workflow Mermaid bucket was not found: {source}")
+            body = source.read_bytes()
+            if hashlib.sha256(body).hexdigest() != bucket.get("sha256"):
+                raise ValueError(f"Workflow Mermaid bucket checksum does not match: {source}")
+            (staging / filename).write_bytes(body)
+
+        backup = output_directory.parent / f".{output_directory.name}.backup"
+        if backup.exists():
+            shutil.rmtree(backup)
+        if output_directory.exists():
+            output_directory.replace(backup)
+        try:
+            staging.replace(output_directory)
+        except BaseException:
+            if backup.exists() and not output_directory.exists():
+                backup.replace(output_directory)
+            raise
+        else:
+            if backup.exists():
+                shutil.rmtree(backup)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    return successful
+
+
+def get_workflow_mermaid_source(
+    workflow_id: int,
+    directory: Path = DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
+) -> str | None:
+    """Read one workflow Mermaid source from its generated JSON bucket."""
+    manifest, records = _workflow_mermaid_manifest(directory)
+    if not manifest:
+        return None
+    record = records.get(workflow_id)
+    if not record or record.get("status") != "success":
+        return None
+    bucket_path = directory / str(record["bucket"])
+    if not bucket_path.is_file():
+        raise FileNotFoundError(f"Workflow Mermaid bucket was not found: {bucket_path}")
+    try:
+        bucket = json.loads(bucket_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Workflow Mermaid bucket is not valid JSON: {bucket_path} ({error})") from error
+    source = bucket.get(str(workflow_id)) if isinstance(bucket, dict) else None
+    if not isinstance(source, str) or not source.startswith("flowchart "):
+        raise ValueError(f"Workflow {workflow_id} is missing from Mermaid bucket {bucket_path.name}.")
+    if hashlib.sha256(source.encode("utf-8")).hexdigest() != record.get("sha256"):
+        raise ValueError(f"Workflow {workflow_id} Mermaid checksum does not match its manifest record.")
+    return source
+
+
 def export_pages_index(
-    map_path: Path = DEFAULT_MAP_PATH, output_path: Path = DEFAULT_PAGES_INDEX_PATH
+    map_path: Path = DEFAULT_MAP_PATH,
+    output_path: Path = DEFAULT_PAGES_INDEX_PATH,
+    mermaid_directory: Path = DEFAULT_WORKFLOW_MERMAID_DIRECTORY,
 ) -> int:
     """Export the minimal public metadata needed by the static GitHub Pages search."""
     payload, workflows = _load_workflows(map_path)
@@ -685,12 +971,27 @@ def export_pages_index(
                 "workflowCount": len(category.get("workflowIds") or []),
             }
         )
+    mermaid_manifest, mermaid_by_id = _workflow_mermaid_manifest(mermaid_directory)
+    if mermaid_manifest:
+        current_map_sha256 = hashlib.sha256(map_path.read_bytes()).hexdigest()
+        if mermaid_manifest.get("mapSha256") != current_map_sha256:
+            raise ValueError(
+                "Workflow Mermaid files were generated from a different workflow map. "
+                "Run 'n8n-search generate-workflow-mermaid' again."
+            )
+        workflow_ids = {int(workflow["id"]) for workflow in workflows}
+        if set(mermaid_by_id) != workflow_ids:
+            raise ValueError(
+                "Workflow Mermaid manifest does not cover every workflow in the map. "
+                "Run 'n8n-search generate-workflow-mermaid' again."
+            )
     records = []
     node_type_workflows: Counter[str] = Counter()
     for workflow in workflows:
         creator = workflow.get("creator") or {}
         compatibility = workflow.get("defaultNodeCompatibility") or {}
         node_types = _mapped_workflow_node_types(workflow)
+        mermaid = mermaid_by_id.get(int(workflow["id"])) or {}
         node_type_workflows.update(node_types)
         records.append(
             {
@@ -711,12 +1012,21 @@ def export_pages_index(
                 "missingNodeTypes": compatibility.get("missingNodeTypes") or [],
                 "missingNodePackages": compatibility.get("missingNodePackages") or [],
                 "nodeTypes": node_types,
+                "mermaidAvailable": mermaid.get("status") == "success",
+                "mermaidError": str(mermaid.get("error") or ""),
             }
         )
     public_index = {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "generatedAt": payload.get("generatedAt"),
         "defaultNodeCatalog": payload.get("defaultNodeCatalog"),
+        "mermaid": {
+            "generatedAt": mermaid_manifest.get("generatedAt"),
+            "direction": mermaid_manifest.get("direction"),
+            "bucketCount": mermaid_manifest.get("bucketCount"),
+            "baseUrl": "workflow-mermaid/",
+            **(mermaid_manifest.get("summary") or {}),
+        },
         "categories": categories,
         "nodeTypes": [
             {
@@ -1305,6 +1615,19 @@ def search_page(
         total = connection.execute(f"SELECT COUNT(*) FROM {source} WHERE {where}", parameters).fetchone()[0]
         rows = connection.execute(sql, [*parameters, limit, offset]).fetchall()
     return SearchPage([SearchResult(**dict(row)) for row in rows], total, offset, limit)
+
+
+def get_workflow_by_id(
+    workflow_id: int, index_path: Path = DEFAULT_INDEX_PATH
+) -> SearchResult | None:
+    """Return one indexed workflow by its public numeric id."""
+    if not index_path.is_file():
+        raise FileNotFoundError(f"Search index was not found: {index_path}. Run 'n8n-search build' first.")
+    with _connect(index_path) as connection:
+        row = connection.execute(
+            "SELECT workflow.*, NULL AS score FROM workflow WHERE id = ?", (workflow_id,)
+        ).fetchone()
+    return SearchResult(**dict(row)) if row is not None else None
 
 
 def search(query: str | None = None, **kwargs: Any) -> list[SearchResult]:

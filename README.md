@@ -90,6 +90,24 @@ license information is included with the exported assets. The command also creat
 one lazily loaded raw catalog record per node type under `pages/node-details/`, so
 opening a detail panel does not increase the initial search-index download.
 
+### Workflow Mermaid previews
+
+With the `n8n-to-mermaid` service running at `http://localhost:8080`, generate
+bucketed Mermaid sources for the workflow collection:
+
+```bash
+uv run n8n-search generate-workflow-mermaid
+```
+
+The command sends workflow JSON to `/api/v1/convert` in parallel and groups successful
+outputs into 64 deterministic JSON buckets under the ignored
+`collection/workflow-mermaid/` directory. Its manifest preserves per-workflow checksums
+and conversion failures for auditing. `export-pages` validates and copies the 64 buckets
+into `pages/workflow-mermaid/`. The browser calculates a workflow's bucket from its id,
+loads only that bucket, caches it for the session, and renders the selected source with
+the same pinned Mermaid version used by the converter project. Use `--buckets` to change
+the bucket count when regenerating both the local and public outputs.
+
 ## Browser interface
 
 Start the local interface with:
@@ -111,7 +129,10 @@ The site has two independent collection views:
 The Workflow Finder includes searchable multi-select node filters. `Included nodes`
 requires every selected node type to be present, while `Excluded nodes` rejects a
 workflow when any selected node type is present. Selecting a node in one panel removes
-the same node from the other panel to prevent contradictory filters.
+the same node from the other panel to prevent contradictory filters. Selecting a
+workflow result opens a shareable detail drawer containing its metadata, node inventory,
+compatibility information, and a lazily loaded Mermaid preview with zoom and source
+download controls.
 
 The Node Explorer supports text search plus category, group, package, usage,
 minimum/maximum workflow counts, and multi-select source-key and capability filters.
@@ -156,11 +177,13 @@ SQLite index.
 
 `pages/` contains a standalone public search site. It does not publish workflow JSON
 files or local file paths. It does publish the installed node catalog as separate,
-per-type raw JSON detail files used by the Node Explorer. Regenerate both public search
-indexes and node detail files after updating either local map, then commit the `pages/`
+per-type raw JSON detail files used by the Node Explorer, plus bucketed Mermaid sources
+used by workflow previews. Regenerate both public search indexes, node detail
+files, and workflow previews after updating either local map, then commit the `pages/`
 directory:
 
 ```bash
+uv run n8n-search generate-workflow-mermaid
 uv run n8n-search export-pages
 ```
 

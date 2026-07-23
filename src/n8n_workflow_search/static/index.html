@@ -153,6 +153,64 @@
         </nav>
       </section>
     </main>
+
+    <div class="workflow-detail-backdrop" id="workflow-detail-backdrop" hidden></div>
+    <aside class="workflow-detail-drawer" id="workflow-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="workflow-detail-title" hidden>
+      <div class="workflow-detail-header">
+        <span>Workflow details</span>
+        <button id="workflow-detail-close" type="button" aria-label="Close workflow details">×</button>
+      </div>
+      <div class="workflow-detail-scroll">
+        <div class="workflow-detail-identity">
+          <span id="workflow-detail-id"></span>
+          <h2 id="workflow-detail-title"></h2>
+          <p id="workflow-detail-description"></p>
+        </div>
+        <div class="workflow-detail-chips" id="workflow-detail-chips"></div>
+        <div class="workflow-detail-metrics" id="workflow-detail-metrics"></div>
+
+        <section class="workflow-detail-section" aria-labelledby="workflow-overview-title">
+          <h3 id="workflow-overview-title">Overview</h3>
+          <dl class="workflow-detail-metadata" id="workflow-detail-metadata"></dl>
+        </section>
+
+        <section class="workflow-detail-section workflow-node-inventory-section" aria-labelledby="workflow-nodes-title">
+          <details class="workflow-node-inventory-details" id="workflow-node-inventory-details">
+            <summary>
+              <span id="workflow-nodes-title">Node inventory</span>
+              <small id="workflow-node-count-label"></small>
+            </summary>
+            <div class="workflow-node-inventory" id="workflow-node-inventory"></div>
+          </details>
+        </section>
+
+        <section class="workflow-detail-section workflow-diagram-section" aria-labelledby="workflow-diagram-title">
+          <div class="workflow-detail-section-heading">
+            <div><h3 id="workflow-diagram-title">Workflow preview</h3><p>Generated from the original n8n workflow with n8n-to-mermaid.</p></div>
+            <div class="diagram-zoom" id="diagram-zoom" hidden>
+              <button id="diagram-zoom-out" type="button" aria-label="Zoom out">−</button>
+              <span id="diagram-zoom-value">100%</span>
+              <button id="diagram-zoom-in" type="button" aria-label="Zoom in">+</button>
+              <button id="diagram-zoom-reset" type="button">Reset</button>
+            </div>
+          </div>
+          <p class="workflow-diagram-status" id="workflow-diagram-status" aria-live="polite">Loading diagram…</p>
+          <div class="workflow-diagram-viewport" id="workflow-diagram-viewport" hidden>
+            <div id="workflow-diagram"></div>
+          </div>
+          <details class="mermaid-source-details" id="mermaid-source-details" hidden>
+            <summary>Mermaid source</summary>
+            <div><button id="copy-mermaid-source" type="button">Copy source</button><a id="download-mermaid-source" download>Download .mmd</a></div>
+            <pre><code id="mermaid-source"></code></pre>
+          </details>
+        </section>
+
+        <div class="workflow-detail-actions">
+          <a id="workflow-detail-gallery" target="_blank" rel="noreferrer">Open in n8n <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </aside>
+
     <template id="result-template">
       <article class="result-card">
         <div class="result-topline">
@@ -164,6 +222,7 @@
         <span class="compatibility"></span>
         <div class="chips"></div>
         <div class="result-actions">
+          <button class="view-workflow-details" type="button">View details <span aria-hidden="true">→</span></button>
           <a class="gallery" target="_blank" rel="noreferrer">Open in n8n <span aria-hidden="true">↗</span></a>
           <button class="copy-path" type="button">Copy local path</button>
         </div>
