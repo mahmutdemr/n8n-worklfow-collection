@@ -132,7 +132,8 @@ workflow when any selected node type is present. Selecting a node in one panel r
 the same node from the other panel to prevent contradictory filters. Selecting a
 workflow result opens a shareable detail drawer containing its metadata, node inventory,
 compatibility information, and a lazily loaded Mermaid preview with zoom and source
-download controls.
+download controls. Its collapsible node inventory lazily loads the node catalog to show
+friendly names and local light/dark icons, with a fallback for unavailable node types.
 
 The Node Explorer supports text search plus category, group, package, usage,
 minimum/maximum workflow counts, and multi-select source-key and capability filters.
