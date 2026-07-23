@@ -1,0 +1,36 @@
+.workflow-node-filter { position: relative; min-width: 0; margin: 0; padding: 0; border: 0; }
+.workflow-node-filter legend { margin: 0 0 7px; padding: 0; color: #8797a2; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.workflow-node-select summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 40px; padding: 0 11px; overflow: hidden; color: #dae1e5; border: 1px solid #33404b; border-radius: 8px; background: #141b24; cursor: pointer; font-size: 13px; list-style: none; }
+.workflow-node-select summary::-webkit-details-marker { display: none; }
+.workflow-node-select summary::after { content: "⌄"; flex: 0 0 auto; color: #82919a; font-size: 15px; transform: translateY(-2px); }
+.workflow-node-select summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-node-select[open] summary { border-color: #a6e879; }
+.workflow-node-select[open] summary::after { transform: rotate(180deg) translateY(-2px); }
+.workflow-node-panel { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: max(100%, 360px); padding: 10px; border: 1px solid #3b4a55; border-radius: 10px; background: #141b24; box-shadow: 0 18px 42px #00000059; }
+#excluded-node-filter .workflow-node-panel { right: 0; left: auto; }
+.filter-grid .node-option-search { display: grid; gap: 6px; color: #7f909a; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.filter-grid .node-option-search input { width: 100%; height: 36px; padding: 0 10px; color: #dae1e5; border: 1px solid #33404b; border-radius: 7px; background: #0f151d; font-size: 12px; letter-spacing: 0; text-transform: none; }
+.workflow-node-panel p { margin: 10px 4px 7px; color: #7f909a; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.workflow-node-options { display: grid; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #4b5b66 transparent; }
+.filter-grid .workflow-node-option { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 48px; padding: 6px; border-radius: 6px; color: #c6d0d5; cursor: pointer; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.filter-grid .workflow-node-option:hover { background: #202b35; }
+.workflow-node-option input { all: revert; box-sizing: border-box; width: 15px; height: 15px; margin: 0; accent-color: #8bc95f; cursor: pointer; }
+.workflow-node-option-text { display: grid; min-width: 0; gap: 3px; }
+.workflow-node-option-text strong { overflow: hidden; color: #d3dce0; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-node-option-text code { overflow: hidden; color: #71818b; font: 9px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-node-option small { color: #71818b; font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.workflow-node-clear { width: 100%; margin-top: 7px; padding: 8px; color: #a6e879; border: 0; border-top: 1px solid #2e3b45; background: transparent; cursor: pointer; font-size: 11px; font-weight: 700; }
+html[data-theme="light"] .workflow-node-filter legend { color: #5c7167; }
+html[data-theme="light"] .workflow-node-select summary { color: #203128; border-color: #c3d0c8; background: #f5f8f6; }
+html[data-theme="light"] .workflow-node-select[open] summary { border-color: #55a273; }
+html[data-theme="light"] .workflow-node-panel { border-color: #bdcbc3; background: #fff; box-shadow: 0 18px 42px #26352b26; }
+html[data-theme="light"] .filter-grid .node-option-search,
+html[data-theme="light"] .workflow-node-panel p,
+html[data-theme="light"] .workflow-node-option small,
+html[data-theme="light"] .workflow-node-option-text code { color: #65776e; }
+html[data-theme="light"] .filter-grid .node-option-search input { color: #203128; border-color: #c3d0c8; background: #f5f8f6; }
+html[data-theme="light"] .filter-grid .workflow-node-option { color: #2f453a; }
+html[data-theme="light"] .filter-grid .workflow-node-option:hover { background: #edf3ef; }
+html[data-theme="light"] .workflow-node-option-text strong { color: #263b31; }
+html[data-theme="light"] .workflow-node-clear { color: #36744e; border-color: #d7e1dc; }
+@media (max-width: 600px) { .workflow-node-panel, #excluded-node-filter .workflow-node-panel { right: auto; left: 0; width: 100%; } }

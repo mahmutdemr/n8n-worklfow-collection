@@ -13,6 +13,14 @@ const nextPage = document.querySelector("#next-page");
 const pageStatus = document.querySelector("#page-status");
 const themeSelect = document.querySelector("#theme-select");
 const themeIcon = document.querySelector("#theme-icon");
+const includedNodeFilter = document.querySelector("#included-node-filter");
+const includedNodeOptions = document.querySelector("#included-node-options");
+const includedNodeSummary = document.querySelector("#included-node-summary");
+const includedNodeSearch = document.querySelector("#included-node-search");
+const excludedNodeFilter = document.querySelector("#excluded-node-filter");
+const excludedNodeOptions = document.querySelector("#excluded-node-options");
+const excludedNodeSummary = document.querySelector("#excluded-node-summary");
+const excludedNodeSearch = document.querySelector("#excluded-node-search");
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fullNumber = new Intl.NumberFormat("en-US");
@@ -57,6 +65,7 @@ function searchScore(workflow, terms, mode) {
     [normalize(workflow.name), 10], [normalize(workflow.slug), 4],
     [normalize(`${workflow.creatorName} ${workflow.creatorUsername}`), 2],
     [normalize(categoryLabels(workflow).join(" ")), 1], [normalize(workflow.description), 2],
+    [normalize(workflow.nodeTypes.join(" ")), 1],
     [normalize(workflow.missingNodeTypes.join(" ")), 1], [normalize(workflow.missingNodePackages.join(" ")), 1],
   ];
   let score = 0;
@@ -75,6 +84,8 @@ function matchesFilters(workflow, fields, terms) {
   const minNodes = Number(fields.get("min_nodes"));
   const maxNodes = Number(fields.get("max_nodes"));
   const createdWithin = Number(fields.get("created_within"));
+  const includedNodes = fields.getAll("include_node").filter(Boolean);
+  const excludedNodes = fields.getAll("exclude_node").filter(Boolean);
   if (fields.get("category_id") && !workflow.categoryIds.includes(Number(fields.get("category_id")))) return false;
   if (fields.get("creator") && !normalize(`${workflow.creatorName} ${workflow.creatorUsername}`).includes(normalize(fields.get("creator")))) return false;
   if (minViews && workflow.views < minViews) return false;
@@ -82,6 +93,8 @@ function matchesFilters(workflow, fields, terms) {
   if (maxNodes && workflow.nodeCount > maxNodes) return false;
   if (fields.get("default_compatible") === "true" && workflow.defaultCompatible !== true) return false;
   if (fields.get("default_compatible") === "false" && workflow.defaultCompatible !== false) return false;
+  if (includedNodes.some((nodeType) => !workflow.nodeTypes.includes(nodeType))) return false;
+  if (excludedNodes.some((nodeType) => workflow.nodeTypes.includes(nodeType))) return false;
   if (createdWithin) {
     const boundary = new Date();
     boundary.setUTCDate(boundary.getUTCDate() - createdWithin);
@@ -139,6 +152,10 @@ function renderResults(results, total, offset) {
 
 function runSearch(event, offset = 0) {
   event?.preventDefault();
+  if (event?.type === "submit") {
+    includedNodeFilter.open = false;
+    excludedNodeFilter.open = false;
+  }
   const fields = new FormData(form);
   const terms = normalize(fields.get("q")).match(/[\p{L}\p{N}_]+/gu) || [];
   resultsSection.setAttribute("aria-busy", "true");
@@ -160,14 +177,107 @@ function runSearch(event, offset = 0) {
   }, 0);
 }
 
+function appendNodeOption(container, fieldName, item) {
+  const option = document.createElement("label");
+  option.className = "workflow-node-option";
+  option.dataset.search = normalize(`${item.label} ${item.type}`);
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = fieldName;
+  input.value = item.type;
+  input.dataset.label = item.label;
+  const text = document.createElement("span");
+  text.className = "workflow-node-option-text";
+  const label = document.createElement("strong");
+  label.textContent = item.label;
+  const type = document.createElement("code");
+  type.textContent = item.type;
+  text.append(label, type);
+  const count = document.createElement("small");
+  count.textContent = `${compactNumber.format(item.workflowCount)} wf`;
+  option.append(input, text, count);
+  container.append(option);
+}
+
+function updateNodeFilterSummary(options, summary, emptyText, selectedText) {
+  const selected = [...options.querySelectorAll('input[type="checkbox"]:checked')];
+  if (!selected.length) summary.textContent = emptyText;
+  else if (selected.length === 1) summary.textContent = selected[0].dataset.label;
+  else summary.textContent = `${selected.length} ${selectedText}`;
+  summary.title = selected.map((input) => input.value).join("\n");
+}
+
+function filterNodeOptions(searchInput, options) {
+  const term = normalize(searchInput.value);
+  for (const option of options.querySelectorAll(".workflow-node-option")) {
+    option.hidden = Boolean(term) && !option.dataset.search.includes(term);
+  }
+}
+
+function clearNodeSelection(options, updateSummary) {
+  for (const input of options.querySelectorAll('input[type="checkbox"]:checked')) input.checked = false;
+  updateSummary();
+}
+
+function reconcileNodeSelection(event, otherOptions) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.type !== "checkbox" || !input.checked) return;
+  const counterpart = [...otherOptions.querySelectorAll('input[type="checkbox"]')]
+    .find((candidate) => candidate.value === input.value);
+  if (counterpart) counterpart.checked = false;
+}
+
+function closeNodeFilterOnEscape(filter, event) {
+  if (event.key === "Escape" && filter.open) {
+    filter.open = false;
+    filter.querySelector("summary").focus();
+  }
+}
+
+const updateIncludedNodeSummary = () => updateNodeFilterSummary(
+  includedNodeOptions, includedNodeSummary, "No required nodes", "required nodes"
+);
+const updateExcludedNodeSummary = () => updateNodeFilterSummary(
+  excludedNodeOptions, excludedNodeSummary, "No excluded nodes", "excluded nodes"
+);
+
 form.addEventListener("submit", runSearch);
 document.querySelector("#clear").addEventListener("click", () => { form.reset(); runSearch(); query.focus(); });
+form.addEventListener("reset", () => window.setTimeout(() => {
+  includedNodeSearch.value = "";
+  excludedNodeSearch.value = "";
+  filterNodeOptions(includedNodeSearch, includedNodeOptions);
+  filterNodeOptions(excludedNodeSearch, excludedNodeOptions);
+  updateIncludedNodeSummary();
+  updateExcludedNodeSummary();
+}, 0));
+includedNodeOptions.addEventListener("change", (event) => {
+  reconcileNodeSelection(event, excludedNodeOptions);
+  updateIncludedNodeSummary();
+  updateExcludedNodeSummary();
+});
+excludedNodeOptions.addEventListener("change", (event) => {
+  reconcileNodeSelection(event, includedNodeOptions);
+  updateIncludedNodeSummary();
+  updateExcludedNodeSummary();
+});
+includedNodeSearch.addEventListener("input", () => filterNodeOptions(includedNodeSearch, includedNodeOptions));
+excludedNodeSearch.addEventListener("input", () => filterNodeOptions(excludedNodeSearch, excludedNodeOptions));
+document.querySelector("#clear-included-nodes").addEventListener("click", () => clearNodeSelection(includedNodeOptions, updateIncludedNodeSummary));
+document.querySelector("#clear-excluded-nodes").addEventListener("click", () => clearNodeSelection(excludedNodeOptions, updateExcludedNodeSummary));
+includedNodeFilter.addEventListener("keydown", (event) => closeNodeFilterOnEscape(includedNodeFilter, event));
+excludedNodeFilter.addEventListener("keydown", (event) => closeNodeFilterOnEscape(excludedNodeFilter, event));
 previousPage.addEventListener("click", () => runSearch(undefined, Math.max(0, currentOffset - pageSize)));
 nextPage.addEventListener("click", () => runSearch(undefined, currentOffset + pageSize));
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && document.activeElement !== query && !["INPUT", "SELECT"].includes(document.activeElement.tagName)) {
     event.preventDefault();
     query.focus();
+  }
+});
+document.addEventListener("click", (event) => {
+  for (const filter of document.querySelectorAll(".workflow-node-select[open]")) {
+    if (!filter.contains(event.target)) filter.open = false;
   }
 });
 
@@ -181,6 +291,10 @@ fetch("search-index.json")
       option.value = item.id;
       option.textContent = `${item.label} (${fullNumber.format(item.workflowCount)})${item.parentName ? ` · ${item.parentName}` : ""}`;
       category.append(option);
+    }
+    for (const item of index.nodeTypes) {
+      appendNodeOption(includedNodeOptions, "include_node", item);
+      appendNodeOption(excludedNodeOptions, "exclude_node", item);
     }
     status.textContent = `${fullNumber.format(workflows.length)} workflows indexed · map generated ${new Date(index.generatedAt).toLocaleDateString("en-US")}`;
     runSearch();

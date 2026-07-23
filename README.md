@@ -21,17 +21,20 @@ The `build` command reads `collection/workflow-map.json` and creates
 though the archive contains more than 10,000 workflow JSON files. Re-run it whenever the
 map is updated.
 
-`enrich-node-counts` scans every local workflow JSON file, records a `nodeCount`
-on each workflow in the map, and rebuilds the search index. Once enriched, node
-range filters are available in the browser and from the command line:
+`enrich-node-counts` scans every local workflow JSON file and records both its
+`nodeCount` and sorted, unique `nodeTypes` list in the map before rebuilding the
+search index. Once enriched, node range and exact included/excluded-node filters
+are available in the browser and from the command line:
 
 ```bash
 uv run n8n-search search "slack" --min-nodes 5 --max-nodes 20
 uv run n8n-search search --created-after 2025-07-13 --sort nodes
+uv run n8n-search search --include-node n8n-nodes-base.postgres --include-node n8n-nodes-base.set
+uv run n8n-search search --exclude-node n8n-nodes-base.manualTrigger
 ```
 
 `enrich-metadata` merges the detailed `collection/workflow-map-v2.json` data
-into the primary map by workflow id. It preserves `nodeCount`, copies the v2
+into the primary map by workflow id. It preserves `nodeCount` and `nodeTypes`, copies the v2
 timestamps, popularity, and expanded creator metadata, then rebuilds the index.
 Descriptions are included in full-text search when present.
 
@@ -102,6 +105,11 @@ The site has two independent collection views:
 
 - `/` searches workflow examples.
 - `/nodes/` explores installed node types, catalog metadata, and usage across workflows.
+
+The Workflow Finder includes searchable multi-select node filters. `Included nodes`
+requires every selected node type to be present, while `Excluded nodes` rejects a
+workflow when any selected node type is present. Selecting a node in one panel removes
+the same node from the other panel to prevent contradictory filters.
 
 The Node Explorer supports text search plus category, group, package, usage,
 minimum/maximum workflow counts, and multi-select source-key and capability filters.

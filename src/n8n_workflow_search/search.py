@@ -44,6 +44,7 @@ class SearchResult:
     missing_node_instance_count: int
     missing_node_types: str
     missing_node_packages: str
+    node_types: str
     creator_name: str
     creator_username: str
     categories: str
@@ -88,6 +89,13 @@ class NodeMapSummary:
     node_instances: int
     used_node_types: int
     unmapped_node_types: int
+
+
+@dataclass(frozen=True)
+class WorkflowNodeType:
+    type: str
+    label: str
+    workflow_count: int
 
 
 def _connect(index_path: Path) -> sqlite3.Connection:
@@ -136,7 +144,7 @@ def _write_map_atomic(payload: dict[str, Any], map_path: Path) -> None:
 
 
 def enrich_node_counts(map_path: Path = DEFAULT_MAP_PATH) -> tuple[int, int]:
-    """Scan every local workflow and record its node count in the workflow map.
+    """Scan every local workflow and record its node count and unique node types.
 
     The replacement is atomic: a missing or malformed workflow file leaves the
     original map untouched. Returns the workflow and total-node counts.
@@ -156,10 +164,18 @@ def enrich_node_counts(map_path: Path = DEFAULT_MAP_PATH) -> tuple[int, int]:
         if not isinstance(nodes, list):
             raise ValueError(f"Workflow has no 'nodes' list: {workflow_path}")
         workflow["nodeCount"] = len(nodes)
+        workflow["nodeTypes"] = sorted(
+            {
+                str(node["type"])
+                for node in nodes
+                if isinstance(node, dict) and node.get("type")
+            }
+        )
         total_nodes += len(nodes)
 
-    payload["schemaVersion"] = max(int(payload.get("schemaVersion", 1)), 2)
+    payload["schemaVersion"] = max(int(payload.get("schemaVersion", 1)), 5)
     payload["nodeCountGeneratedAt"] = datetime.now(UTC).isoformat()
+    payload["workflowNodeTypesGeneratedAt"] = payload["nodeCountGeneratedAt"]
     _write_map_atomic(payload, map_path)
     return len(workflows), total_nodes
 
@@ -169,7 +185,7 @@ def enrich_metadata(
 ) -> int:
     """Merge the detailed v2 metadata map into the primary map by workflow id.
 
-    Locally calculated fields such as ``nodeCount`` are retained. The operation
+    Locally calculated fields such as ``nodeCount`` and ``nodeTypes`` are retained. The operation
     is atomic and refuses a partial merge when either map has unmatched ids.
     """
     payload, workflows = _load_workflows(map_path)
@@ -187,10 +203,9 @@ def enrich_metadata(
         )
 
     for workflow_id, target in current_by_id.items():
-        node_count = target.get("nodeCount")
+        retained = {key: target[key] for key in ("nodeCount", "nodeTypes") if key in target}
         target.update(source_by_id[workflow_id])
-        if node_count is not None:
-            target["nodeCount"] = node_count
+        target.update(retained)
         popularity = target.get("popularity") or {}
         if isinstance(popularity.get("views"), int):
             target["views"] = popularity["views"]
@@ -219,6 +234,34 @@ def _node_package_name(node_type: str) -> str:
         package, _, _ = remainder.partition(".")
         return f"{scope}/{package}" if package else node_type
     return node_type.partition(".")[0]
+
+
+def _node_type_label(node_type: str) -> str:
+    """Create a compact human-readable label from an n8n node type."""
+    name = node_type.rsplit(".", 1)[-1]
+    words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name).replace("_", " ").replace("-", " ")
+    acronyms = {
+        "ai": "AI", "api": "API", "aws": "AWS", "crm": "CRM", "csv": "CSV", "db": "DB",
+        "ftp": "FTP", "html": "HTML", "http": "HTTP", "https": "HTTPS", "id": "ID", "ip": "IP",
+        "jwt": "JWT", "lm": "LM", "mcp": "MCP", "oauth": "OAuth", "pdf": "PDF", "rss": "RSS",
+        "sql": "SQL", "ssh": "SSH", "sse": "SSE", "totp": "TOTP", "url": "URL", "xml": "XML",
+    }
+    label = " ".join(acronyms.get(word.casefold(), word.capitalize()) for word in words.split())
+    for separated, branded in {
+        "Git Lab": "GitLab", "Mongo DB": "MongoDB", "My SQL": "MySQL", "Open AI": "OpenAI",
+        "Pay Pal": "PayPal", "Post Hog": "PostHog", "Postgre SQL": "PostgreSQL", "You Tube": "YouTube",
+    }.items():
+        label = label.replace(separated, branded)
+    return label or node_type
+
+
+def _mapped_workflow_node_types(workflow: dict[str, Any]) -> list[str]:
+    node_types = workflow.get("nodeTypes")
+    if not isinstance(node_types, list):
+        raise ValueError(
+            "Workflow map is missing nodeTypes metadata. Run 'n8n-search enrich-node-counts' first."
+        )
+    return sorted({str(node_type) for node_type in node_types if node_type})
 
 
 def _version_label(value: Any) -> str:
@@ -597,6 +640,7 @@ def enrich_default_node_compatibility(
         if not isinstance(nodes, list):
             raise ValueError(f"Workflow has no 'nodes' list: {workflow_path}")
         node_types = [node.get("type") for node in nodes if isinstance(node, dict) and node.get("type")]
+        workflow["nodeTypes"] = sorted(set(node_types))
         missing_types = sorted(set(node_types) - available_types)
         missing_type_set = set(missing_types)
         missing_instance_count = sum(node_type in missing_type_set for node_type in node_types)
@@ -612,7 +656,8 @@ def enrich_default_node_compatibility(
             "missingNodePackages": sorted({_node_package_name(node_type) for node_type in missing_types}),
         }
 
-    payload["schemaVersion"] = max(int(payload.get("schemaVersion", 1)), 4)
+    payload["schemaVersion"] = max(int(payload.get("schemaVersion", 1)), 5)
+    payload["workflowNodeTypesGeneratedAt"] = datetime.now(UTC).isoformat()
     payload["defaultNodeCatalog"] = {
         "path": str(node_catalog_path),
         "nodeTypeCount": len(available_types),
@@ -640,9 +685,12 @@ def export_pages_index(
             }
         )
     records = []
+    node_type_workflows: Counter[str] = Counter()
     for workflow in workflows:
         creator = workflow.get("creator") or {}
         compatibility = workflow.get("defaultNodeCompatibility") or {}
+        node_types = _mapped_workflow_node_types(workflow)
+        node_type_workflows.update(node_types)
         records.append(
             {
                 "id": workflow["id"],
@@ -661,13 +709,24 @@ def export_pages_index(
                 "missingNodeInstanceCount": int(compatibility.get("missingNodeInstanceCount") or 0),
                 "missingNodeTypes": compatibility.get("missingNodeTypes") or [],
                 "missingNodePackages": compatibility.get("missingNodePackages") or [],
+                "nodeTypes": node_types,
             }
         )
     public_index = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "generatedAt": payload.get("generatedAt"),
         "defaultNodeCatalog": payload.get("defaultNodeCatalog"),
         "categories": categories,
+        "nodeTypes": [
+            {
+                "type": node_type,
+                "label": _node_type_label(node_type),
+                "workflowCount": workflow_count,
+            }
+            for node_type, workflow_count in sorted(
+                node_type_workflows.items(), key=lambda item: (-item[1], item[0].casefold())
+            )
+        ],
         "workflows": records,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -868,6 +927,7 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     missing_node_instance_count INTEGER NOT NULL,
                     missing_node_types TEXT NOT NULL,
                     missing_node_packages TEXT NOT NULL,
+                    node_types TEXT NOT NULL,
                     creator_name TEXT NOT NULL,
                     creator_username TEXT NOT NULL,
                     categories TEXT NOT NULL,
@@ -875,7 +935,8 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     file TEXT NOT NULL
                 );
                 CREATE VIRTUAL TABLE workflow_fts USING fts5(
-                    name, slug, creator_name, creator_username, categories, description, missing_node_types, missing_node_packages,
+                    name, slug, creator_name, creator_username, categories, description, node_types,
+                    missing_node_types, missing_node_packages,
                     content='workflow', content_rowid='id',
                     tokenize='unicode61 remove_diacritics 2'
                 );
@@ -890,6 +951,12 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                     category_id INTEGER NOT NULL REFERENCES category(id),
                     PRIMARY KEY (workflow_id, category_id)
                 );
+                CREATE TABLE workflow_node (
+                    workflow_id INTEGER NOT NULL REFERENCES workflow(id),
+                    node_type TEXT NOT NULL,
+                    PRIMARY KEY (workflow_id, node_type)
+                );
+                CREATE INDEX workflow_node_type_index ON workflow_node(node_type, workflow_id);
                 CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 """
             )
@@ -915,6 +982,7 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                         int(compatibility.get("missingNodeInstanceCount") or 0),
                         json.dumps(compatibility.get("missingNodeTypes") or []),
                         json.dumps(compatibility.get("missingNodePackages") or []),
+                        json.dumps(_mapped_workflow_node_types(workflow)),
                         str(creator.get("name") or ""),
                         str(creator.get("username") or ""),
                         _category_text(workflow.get("categories") or []),
@@ -927,8 +995,9 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
                 INSERT INTO workflow (
                     id, name, slug, views, node_count, description, created_at, updated_at, last_seen_at,
                     default_compatible, missing_node_type_count, missing_node_instance_count,
-                    missing_node_types, missing_node_packages, creator_name, creator_username, categories, gallery_url, file
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    missing_node_types, missing_node_packages, node_types, creator_name, creator_username,
+                    categories, gallery_url, file
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -955,6 +1024,14 @@ def build_index(map_path: Path = DEFAULT_MAP_PATH, index_path: Path = DEFAULT_IN
             }
             connection.executemany(
                 "INSERT INTO workflow_category (workflow_id, category_id) VALUES (?, ?)", workflow_categories
+            )
+            workflow_nodes = {
+                (int(workflow["id"]), node_type)
+                for workflow in workflows
+                for node_type in _mapped_workflow_node_types(workflow)
+            }
+            connection.executemany(
+                "INSERT INTO workflow_node (workflow_id, node_type) VALUES (?, ?)", workflow_nodes
             )
             connection.execute("INSERT INTO workflow_fts(workflow_fts) VALUES ('rebuild')")
             metadata = {
@@ -1013,6 +1090,8 @@ def search_page(
     max_nodes: int | None = None,
     default_compatible: bool | None = None,
     min_missing_node_types: int | None = None,
+    include_nodes: Iterable[str] | None = None,
+    exclude_nodes: Iterable[str] | None = None,
     created_after: str | None = None,
     created_before: str | None = None,
     limit: int = 20,
@@ -1038,6 +1117,16 @@ def search_page(
         raise ValueError("min_nodes cannot be greater than max_nodes.")
     if min_missing_node_types is not None and min_missing_node_types < 0:
         raise ValueError("min_missing_node_types cannot be negative.")
+
+    included_node_types = list(
+        dict.fromkeys(str(value).strip() for value in include_nodes or [] if str(value).strip())
+    )
+    excluded_node_types = list(
+        dict.fromkeys(str(value).strip() for value in exclude_nodes or [] if str(value).strip())
+    )
+    overlapping_node_types = sorted(set(included_node_types) & set(excluded_node_types))
+    if overlapping_node_types:
+        raise ValueError(f"A node type cannot be both included and excluded: {overlapping_node_types[0]}")
 
     text_query = (query or "").strip()
     has_text_query = bool(text_query)
@@ -1073,6 +1162,19 @@ def search_page(
     if min_missing_node_types is not None:
         clauses.append("workflow.missing_node_type_count >= ?")
         parameters.append(min_missing_node_types)
+    for node_type in included_node_types:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM workflow_node WHERE workflow_node.workflow_id = workflow.id "
+            "AND workflow_node.node_type = ?)"
+        )
+        parameters.append(node_type)
+    if excluded_node_types:
+        placeholders = ", ".join("?" for _ in excluded_node_types)
+        clauses.append(
+            "NOT EXISTS (SELECT 1 FROM workflow_node WHERE workflow_node.workflow_id = workflow.id "
+            f"AND workflow_node.node_type IN ({placeholders}))"
+        )
+        parameters.extend(excluded_node_types)
     after_bound, _ = _date_bound(created_after, "created_after")
     before_bound, before_is_date = _date_bound(created_before, "created_before", end=True)
     if after_bound:
@@ -1088,7 +1190,7 @@ def search_page(
         "nodes": "workflow.node_count DESC, workflow.views DESC, workflow.name COLLATE NOCASE",
     }[sort]
     source = "workflow_fts JOIN workflow ON workflow_fts.rowid = workflow.id" if has_text_query else "workflow"
-    score = "bm25(workflow_fts, 10.0, 4.0, 2.0, 2.0, 1.0, 2.0, 1.0, 1.0)" if has_text_query else "NULL"
+    score = "bm25(workflow_fts, 10.0, 4.0, 2.0, 2.0, 1.0, 2.0, 1.0, 1.0, 1.0)" if has_text_query else "NULL"
     where = " AND ".join(clauses) or "1 = 1"
     sql = f"""
         SELECT workflow.*, {score} AS score
@@ -1133,7 +1235,30 @@ def get_categories(index_path: Path = DEFAULT_INDEX_PATH) -> list[Category]:
             ORDER BY workflow_count DESC, COALESCE(category.display_name, category.name) COLLATE NOCASE
             """
         ).fetchall()
-    return [Category(**dict(row)) for row in rows]
+        return [Category(**dict(row)) for row in rows]
+
+
+def get_workflow_node_types(index_path: Path = DEFAULT_INDEX_PATH) -> list[WorkflowNodeType]:
+    """Return node types used by workflows, ordered by workflow coverage."""
+    if not index_path.is_file():
+        raise FileNotFoundError(f"Search index was not found: {index_path}. Run 'n8n-search build' first.")
+    with _connect(index_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT node_type AS type, COUNT(*) AS workflow_count
+            FROM workflow_node
+            GROUP BY node_type
+            ORDER BY workflow_count DESC, node_type COLLATE NOCASE
+            """
+        ).fetchall()
+    return [
+        WorkflowNodeType(
+            type=row["type"],
+            label=_node_type_label(row["type"]),
+            workflow_count=row["workflow_count"],
+        )
+        for row in rows
+    ]
 
 
 def resolved_local_file(result: SearchResult, map_path: Path = DEFAULT_MAP_PATH) -> Path:

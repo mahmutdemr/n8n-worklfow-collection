@@ -7,6 +7,7 @@
     <title>n8n Workflow Finder</title>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/theme.css">
+    <link rel="stylesheet" href="/workflow.css">
     <script>
       (() => {
         try {
@@ -84,6 +85,34 @@
                   <option value="false">needs unavailable nodes</option>
                 </select>
               </label>
+              <fieldset class="workflow-node-filter">
+                <legend>Included nodes</legend>
+                <details class="workflow-node-select" id="included-node-filter">
+                  <summary><span id="included-node-summary" aria-live="polite">No required nodes</span></summary>
+                  <div class="workflow-node-panel">
+                    <label class="node-option-search">Filter nodes
+                      <input id="included-node-search" type="search" placeholder="Search node types…" autocomplete="off">
+                    </label>
+                    <p>Workflow must contain every selected node</p>
+                    <div class="workflow-node-options" id="included-node-options" role="group" aria-label="Required nodes"></div>
+                    <button class="workflow-node-clear" id="clear-included-nodes" type="button">Clear selection</button>
+                  </div>
+                </details>
+              </fieldset>
+              <fieldset class="workflow-node-filter">
+                <legend>Excluded nodes</legend>
+                <details class="workflow-node-select" id="excluded-node-filter">
+                  <summary><span id="excluded-node-summary" aria-live="polite">No excluded nodes</span></summary>
+                  <div class="workflow-node-panel">
+                    <label class="node-option-search">Filter nodes
+                      <input id="excluded-node-search" type="search" placeholder="Search node types…" autocomplete="off">
+                    </label>
+                    <p>Workflow must contain none of the selected nodes</p>
+                    <div class="workflow-node-options" id="excluded-node-options" role="group" aria-label="Excluded nodes"></div>
+                    <button class="workflow-node-clear" id="clear-excluded-nodes" type="button">Clear selection</button>
+                  </div>
+                </details>
+              </fieldset>
               <label>Created
                 <select name="created_within" id="created-within">
                   <option value="">all time</option>

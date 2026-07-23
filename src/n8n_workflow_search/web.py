@@ -17,6 +17,7 @@ from .search import (
     DEFAULT_NODE_MAP_PATH,
     get_categories,
     get_stats,
+    get_workflow_node_types,
     public_node_index,
     resolved_local_file,
     search_page,
@@ -78,6 +79,12 @@ def create_handler(
                     },
                 )
                 return
+            if request.path == "/api/workflow-node-types":
+                self._send_json(
+                    HTTPStatus.OK,
+                    {"nodeTypes": [asdict(node_type) for node_type in get_workflow_node_types(index_path)]},
+                )
+                return
             if request.path == "/api/search":
                 self._handle_search(parse_qs(request.query))
                 return
@@ -130,6 +137,8 @@ def create_handler(
                     min_missing_node_types=_integer(
                         _one(parameters, "min_missing_node_types"), "Minimum missing node types"
                     ),
+                    include_nodes=parameters.get("include_node", []),
+                    exclude_nodes=parameters.get("exclude_node", []),
                     created_after=_one(parameters, "created_after").strip() or None,
                     created_before=_one(parameters, "created_before").strip() or None,
                     limit=_integer(_one(parameters, "limit"), "Limit", 30) or 30,

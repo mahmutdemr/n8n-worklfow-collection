@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from n8n_workflow_search.node_icons import merge_icon_manifest
 from n8n_workflow_search.search import (
     build_index,
@@ -14,6 +16,7 @@ from n8n_workflow_search.search import (
     export_pages_index,
     get_categories,
     get_stats,
+    get_workflow_node_types,
     search,
     search_page,
 )
@@ -37,6 +40,7 @@ def _write_map(path: Path) -> None:
                         "slug": "send-slack-alerts-postgres",
                         "views": 120,
                         "nodeCount": 3,
+                        "nodeTypes": ["n8n-nodes-base.postgres", "n8n-nodes-base.slack"],
                         "creator": {"name": "Ada Lovelace", "username": "ada"},
                         "categories": [{"id": 5, "name": "Engineering", "parent": {"name": "IT Ops"}}],
                         "galleryUrl": "https://example.test/1",
@@ -48,6 +52,7 @@ def _write_map(path: Path) -> None:
                         "slug": "create-notion-pages",
                         "views": 20,
                         "nodeCount": 12,
+                        "nodeTypes": ["n8n-nodes-base.notion"],
                         "creator": {"name": "Grace Hopper", "username": "grace"},
                         "categories": [{"id": 27, "name": "Marketing", "parent": None}],
                         "galleryUrl": "https://example.test/2",
@@ -73,6 +78,11 @@ def test_build_and_search_metadata(tmp_path: Path) -> None:
     assert results[0].node_count == 3
     assert get_stats(index_path)["indexed_workflows"] == "2"
     assert [(category.id, category.workflow_count) for category in get_categories(index_path)] == [(5, 1), (27, 1)]
+    assert [(node.type, node.workflow_count) for node in get_workflow_node_types(index_path)] == [
+        ("n8n-nodes-base.notion", 1),
+        ("n8n-nodes-base.postgres", 1),
+        ("n8n-nodes-base.slack", 1),
+    ]
 
 
 def test_search_any_mode_and_view_sort(tmp_path: Path) -> None:
@@ -93,6 +103,18 @@ def test_search_any_mode_and_view_sort(tmp_path: Path) -> None:
 
     assert page.total == 2
     assert [result.id for result in page.results] == [1]
+    assert [result.id for result in search(index_path=index_path, include_nodes=["n8n-nodes-base.slack"])] == [1]
+    assert search(
+        index_path=index_path,
+        include_nodes=["n8n-nodes-base.slack", "n8n-nodes-base.notion"],
+    ) == []
+    assert [result.id for result in search(index_path=index_path, exclude_nodes=["n8n-nodes-base.slack"])] == [2]
+    with pytest.raises(ValueError, match="both included and excluded"):
+        search(
+            index_path=index_path,
+            include_nodes=["n8n-nodes-base.slack"],
+            exclude_nodes=["n8n-nodes-base.slack"],
+        )
 
 
 def test_node_range_filter_and_map_enrichment(tmp_path: Path) -> None:
@@ -101,10 +123,18 @@ def test_node_range_filter_and_map_enrichment(tmp_path: Path) -> None:
     workflow_directory = tmp_path / "workflows"
     workflow_directory.mkdir()
     _write_map(map_path)
-    (workflow_directory / "1.json").write_text('{"nodes": [{}, {}, {}, {}]}', encoding="utf-8")
-    (workflow_directory / "2.json").write_text('{"nodes": [{}]}', encoding="utf-8")
+    (workflow_directory / "1.json").write_text(
+        '{"nodes": [{"type":"n8n-nodes-base.slack"},{"type":"n8n-nodes-base.slack"},{},{}]}',
+        encoding="utf-8",
+    )
+    (workflow_directory / "2.json").write_text(
+        '{"nodes": [{"type":"n8n-nodes-base.notion"}]}', encoding="utf-8"
+    )
 
     assert enrich_node_counts(map_path) == (2, 5)
+    enriched = json.loads(map_path.read_text(encoding="utf-8"))
+    assert enriched["workflows"][0]["nodeTypes"] == ["n8n-nodes-base.slack"]
+    assert enriched["workflowNodeTypesGeneratedAt"]
     build_index(map_path, index_path)
     assert [result.id for result in search("slack", index_path=index_path, min_nodes=4)] == [1]
 
@@ -134,6 +164,7 @@ def test_v2_metadata_enrichment_preserves_node_count(tmp_path: Path) -> None:
     results = search("detailed slack", index_path=index_path)
 
     assert results[0].node_count == 3
+    assert json.loads(results[0].node_types) == ["n8n-nodes-base.postgres", "n8n-nodes-base.slack"]
     assert results[0].views == 220
     assert results[0].created_at == "2025-01-02T03:04:05Z"
     assert search_page(index_path=index_path, created_after="2025-01-01").total == 2
@@ -168,6 +199,8 @@ def test_default_node_compatibility_tags_and_filters(tmp_path: Path) -> None:
     assert missing[0].missing_node_type_count == 1
     assert missing[0].missing_node_instance_count == 2
     assert json.loads(missing[0].missing_node_packages) == ["n8n-nodes-extra"]
+    enriched = json.loads(map_path.read_text(encoding="utf-8"))
+    assert enriched["workflows"][0]["nodeTypes"] == ["n8n-nodes-base.slack", "n8n-nodes-extra.foo"]
 
 
 def test_build_node_map_aggregates_types_workflows_instances_and_versions(tmp_path: Path) -> None:
@@ -291,6 +324,13 @@ def test_pages_export_contains_only_public_search_metadata(tmp_path: Path) -> No
     record = exported["workflows"][0]
 
     assert record["missingNodeTypes"] == ["n8n-nodes-extra.foo"]
+    assert record["nodeTypes"] == ["n8n-nodes-base.postgres", "n8n-nodes-base.slack"]
+    assert exported["schemaVersion"] == 2
+    assert {item["type"] for item in exported["nodeTypes"]} == {
+        "n8n-nodes-base.notion",
+        "n8n-nodes-base.postgres",
+        "n8n-nodes-base.slack",
+    }
     assert "file" not in record
     assert "workflowIds" not in exported["categories"][0]
 

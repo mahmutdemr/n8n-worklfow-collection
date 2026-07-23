@@ -54,7 +54,9 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path")
     build.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
 
-    enrich = subcommands.add_parser("enrich-node-counts", help="Scan workflow JSON files and add nodeCount to the map.")
+    enrich = subcommands.add_parser(
+        "enrich-node-counts", help="Scan workflow JSON files and add nodeCount and nodeTypes to the map."
+    )
     enrich.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path")
     enrich.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path to rebuild")
 
@@ -122,6 +124,12 @@ def _parser() -> argparse.ArgumentParser:
         help="Require only installed-default nodes, or use --no-default-compatible for unavailable nodes",
     )
     query.add_argument("--min-missing-node-types", type=int, help="Minimum unavailable node-type count")
+    query.add_argument(
+        "--include-node", action="append", default=[], help="Require this exact node type; repeat for multiple nodes"
+    )
+    query.add_argument(
+        "--exclude-node", action="append", default=[], help="Exclude this exact node type; repeat for multiple nodes"
+    )
     query.add_argument("--created-after", help="Only workflows created on or after this ISO date (YYYY-MM-DD)")
     query.add_argument("--created-before", help="Only workflows created on or before this ISO date (YYYY-MM-DD)")
     query.add_argument("--limit", type=int, default=20, help="Maximum results (default: 20)")
@@ -166,7 +174,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "enrich-node-counts":
             workflow_count, total_nodes = enrich_node_counts(args.file)
             build_index(args.file, args.index)
-            print(f"Added nodeCount for {workflow_count:,} workflows ({total_nodes:,} total nodes) and rebuilt {args.index}.")
+            print(
+                f"Added nodeCount and nodeTypes for {workflow_count:,} workflows "
+                f"({total_nodes:,} total nodes) and rebuilt {args.index}."
+            )
         elif args.command == "enrich-metadata":
             workflow_count = enrich_metadata(args.file, args.source)
             build_index(args.file, args.index)
@@ -222,6 +233,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_nodes=args.max_nodes,
                 default_compatible=args.default_compatible,
                 min_missing_node_types=args.min_missing_node_types,
+                include_nodes=args.include_node,
+                exclude_nodes=args.exclude_node,
                 created_after=args.created_after,
                 created_before=args.created_before,
                 limit=args.limit,

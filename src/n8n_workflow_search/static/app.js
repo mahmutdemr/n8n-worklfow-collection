@@ -13,6 +13,14 @@ const nextPage = document.querySelector("#next-page");
 const pageStatus = document.querySelector("#page-status");
 const themeSelect = document.querySelector("#theme-select");
 const themeIcon = document.querySelector("#theme-icon");
+const includedNodeFilter = document.querySelector("#included-node-filter");
+const includedNodeOptions = document.querySelector("#included-node-options");
+const includedNodeSummary = document.querySelector("#included-node-summary");
+const includedNodeSearch = document.querySelector("#included-node-search");
+const excludedNodeFilter = document.querySelector("#excluded-node-filter");
+const excludedNodeOptions = document.querySelector("#excluded-node-options");
+const excludedNodeSummary = document.querySelector("#excluded-node-summary");
+const excludedNodeSearch = document.querySelector("#excluded-node-search");
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fullNumber = new Intl.NumberFormat("en-US");
@@ -103,6 +111,10 @@ function renderResults(results, total, offset, limit) {
 
 async function submitSearch(event, offset = 0) {
   event?.preventDefault();
+  if (event?.type === "submit") {
+    includedNodeFilter.open = false;
+    excludedNodeFilter.open = false;
+  }
   const parameters = new URLSearchParams(new FormData(form));
   const createdWithin = Number(parameters.get("created_within"));
   parameters.delete("created_within");
@@ -132,18 +144,115 @@ async function submitSearch(event, offset = 0) {
   }
 }
 
+function appendNodeOption(container, fieldName, item) {
+  const option = document.createElement("label");
+  option.className = "workflow-node-option";
+  option.dataset.search = `${item.label} ${item.type}`.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = fieldName;
+  input.value = item.type;
+  input.dataset.label = item.label;
+  const text = document.createElement("span");
+  text.className = "workflow-node-option-text";
+  const label = document.createElement("strong");
+  label.textContent = item.label;
+  const type = document.createElement("code");
+  type.textContent = item.type;
+  text.append(label, type);
+  const count = document.createElement("small");
+  count.textContent = `${compactNumber.format(item.workflow_count)} wf`;
+  option.append(input, text, count);
+  container.append(option);
+}
+
+function normalizedNodeFilter(value) {
+  return String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function updateNodeFilterSummary(options, summary, emptyText, selectedText) {
+  const selected = [...options.querySelectorAll('input[type="checkbox"]:checked')];
+  if (!selected.length) summary.textContent = emptyText;
+  else if (selected.length === 1) summary.textContent = selected[0].dataset.label;
+  else summary.textContent = `${selected.length} ${selectedText}`;
+  summary.title = selected.map((input) => input.value).join("\n");
+}
+
+function filterNodeOptions(searchInput, options) {
+  const term = normalizedNodeFilter(searchInput.value);
+  for (const option of options.querySelectorAll(".workflow-node-option")) {
+    option.hidden = Boolean(term) && !option.dataset.search.includes(term);
+  }
+}
+
+function clearNodeSelection(options, updateSummary) {
+  for (const input of options.querySelectorAll('input[type="checkbox"]:checked')) input.checked = false;
+  updateSummary();
+}
+
+function reconcileNodeSelection(event, otherOptions) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.type !== "checkbox" || !input.checked) return;
+  const counterpart = [...otherOptions.querySelectorAll('input[type="checkbox"]')]
+    .find((candidate) => candidate.value === input.value);
+  if (counterpart) counterpart.checked = false;
+}
+
+function closeNodeFilterOnEscape(filter, event) {
+  if (event.key === "Escape" && filter.open) {
+    filter.open = false;
+    filter.querySelector("summary").focus();
+  }
+}
+
+const updateIncludedNodeSummary = () => updateNodeFilterSummary(
+  includedNodeOptions, includedNodeSummary, "No required nodes", "required nodes"
+);
+const updateExcludedNodeSummary = () => updateNodeFilterSummary(
+  excludedNodeOptions, excludedNodeSummary, "No excluded nodes", "excluded nodes"
+);
+
 form.addEventListener("submit", submitSearch);
 document.querySelector("#clear").addEventListener("click", () => {
   form.reset();
   submitSearch();
   query.focus();
 });
+form.addEventListener("reset", () => window.setTimeout(() => {
+  includedNodeSearch.value = "";
+  excludedNodeSearch.value = "";
+  filterNodeOptions(includedNodeSearch, includedNodeOptions);
+  filterNodeOptions(excludedNodeSearch, excludedNodeOptions);
+  updateIncludedNodeSummary();
+  updateExcludedNodeSummary();
+}, 0));
+includedNodeOptions.addEventListener("change", (event) => {
+  reconcileNodeSelection(event, excludedNodeOptions);
+  updateIncludedNodeSummary();
+  updateExcludedNodeSummary();
+});
+excludedNodeOptions.addEventListener("change", (event) => {
+  reconcileNodeSelection(event, includedNodeOptions);
+  updateIncludedNodeSummary();
+  updateExcludedNodeSummary();
+});
+includedNodeSearch.addEventListener("input", () => filterNodeOptions(includedNodeSearch, includedNodeOptions));
+excludedNodeSearch.addEventListener("input", () => filterNodeOptions(excludedNodeSearch, excludedNodeOptions));
+document.querySelector("#clear-included-nodes").addEventListener("click", () => clearNodeSelection(includedNodeOptions, updateIncludedNodeSummary));
+document.querySelector("#clear-excluded-nodes").addEventListener("click", () => clearNodeSelection(excludedNodeOptions, updateExcludedNodeSummary));
+includedNodeFilter.addEventListener("keydown", (event) => closeNodeFilterOnEscape(includedNodeFilter, event));
+excludedNodeFilter.addEventListener("keydown", (event) => closeNodeFilterOnEscape(excludedNodeFilter, event));
 previousPage.addEventListener("click", () => submitSearch(undefined, Math.max(0, currentOffset - pageSize)));
 nextPage.addEventListener("click", () => submitSearch(undefined, currentOffset + pageSize));
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && document.activeElement !== query && !["INPUT", "SELECT"].includes(document.activeElement.tagName)) {
     event.preventDefault();
     query.focus();
+  }
+});
+document.addEventListener("click", (event) => {
+  for (const filter of document.querySelectorAll(".workflow-node-select[open]")) {
+    if (!filter.contains(event.target)) filter.open = false;
   }
 });
 
@@ -163,5 +272,18 @@ fetch("/api/categories")
     }
   })
   .catch(() => { category.disabled = true; });
+
+fetch("/api/workflow-node-types")
+  .then((response) => response.json())
+  .then((data) => {
+    for (const item of data.nodeTypes) {
+      appendNodeOption(includedNodeOptions, "include_node", item);
+      appendNodeOption(excludedNodeOptions, "exclude_node", item);
+    }
+  })
+  .catch(() => {
+    includedNodeFilter.querySelector("summary").textContent = "Node list unavailable";
+    excludedNodeFilter.querySelector("summary").textContent = "Node list unavailable";
+  });
 
 submitSearch();
