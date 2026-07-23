@@ -12,6 +12,10 @@ const nextPage = document.querySelector("#next-page");
 const pageStatus = document.querySelector("#page-status");
 const themeSelect = document.querySelector("#theme-select");
 const themeIcon = document.querySelector("#theme-icon");
+const sourceKeyFilter = document.querySelector("#source-key-filter");
+const sourceKeyOptions = document.querySelector("#source-key-options");
+const sourceKeySummary = document.querySelector("#source-key-summary");
+const clearSourceKeys = document.querySelector("#clear-source-keys");
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fullNumber = new Intl.NumberFormat("en-US");
@@ -83,7 +87,7 @@ function matchesFilters(node, fields) {
   const category = fields.get("category");
   const group = fields.get("group");
   const packageName = fields.get("package");
-  const key = fields.get("key");
+  const keys = fields.getAll("key").filter(Boolean);
   const usage = fields.get("usage");
   const capability = fields.get("capability");
   const minWorkflows = Number(fields.get("min_workflows"));
@@ -91,7 +95,7 @@ function matchesFilters(node, fields) {
   if (category && !node.categories.includes(category)) return false;
   if (group && !node.groups.includes(group)) return false;
   if (packageName && node.packageName !== packageName) return false;
-  if (key && !node.keys.includes(key)) return false;
+  if (keys.length && !keys.some((key) => node.keys.includes(key))) return false;
   if (usage === "used" && node.usage.instanceCount === 0) return false;
   if (usage === "unused" && node.usage.instanceCount > 0) return false;
   if (capability === "tool" && !node.usableAsTool) return false;
@@ -193,6 +197,7 @@ function renderResults(results, total, offset) {
 
 function runSearch(event, offset = 0) {
   event?.preventDefault();
+  if (event?.type === "submit") sourceKeyFilter.open = false;
   const fields = new FormData(form);
   const terms = normalize(fields.get("q")).match(/[\p{L}\p{N}_]+/gu) || [];
   resultsSection.setAttribute("aria-busy", "true");
@@ -226,8 +231,28 @@ function addCountedOptions(select, values, suffix = "nodes") {
   }
 }
 
+function updateSourceKeySummary() {
+  const selected = [...sourceKeyOptions.querySelectorAll('input[name="key"]:checked')].map((input) => input.value);
+  if (!selected.length) sourceKeySummary.textContent = "All source keys";
+  else if (selected.length <= 2) sourceKeySummary.textContent = selected.join(", ");
+  else sourceKeySummary.textContent = `${selected.length} keys selected`;
+  sourceKeySummary.title = selected.join(", ");
+}
+
 form.addEventListener("submit", runSearch);
 document.querySelector("#clear").addEventListener("click", () => { form.reset(); runSearch(); query.focus(); });
+form.addEventListener("reset", () => window.setTimeout(updateSourceKeySummary, 0));
+sourceKeyOptions.addEventListener("change", updateSourceKeySummary);
+clearSourceKeys.addEventListener("click", () => {
+  for (const input of sourceKeyOptions.querySelectorAll('input[name="key"]:checked')) input.checked = false;
+  updateSourceKeySummary();
+});
+sourceKeyFilter.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && sourceKeyFilter.open) {
+    sourceKeyFilter.open = false;
+    sourceKeyFilter.querySelector("summary").focus();
+  }
+});
 previousPage.addEventListener("click", () => runSearch(undefined, Math.max(0, currentOffset - pageSize)));
 nextPage.addEventListener("click", () => runSearch(undefined, currentOffset + pageSize));
 document.addEventListener("keydown", (event) => {
@@ -235,6 +260,9 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     query.focus();
   }
+});
+document.addEventListener("click", (event) => {
+  if (sourceKeyFilter.open && !sourceKeyFilter.contains(event.target)) sourceKeyFilter.open = false;
 });
 
 fetch(document.body.dataset.indexUrl)
@@ -248,12 +276,19 @@ fetch(document.body.dataset.indexUrl)
     addCountedOptions(document.querySelector("#category"), nodes.flatMap((node) => node.categories));
     addCountedOptions(document.querySelector("#group"), nodes.flatMap((node) => node.groups));
     addCountedOptions(document.querySelector("#package"), nodes.map((node) => node.packageName));
-    const keySelect = document.querySelector("#source-key");
     for (const item of index.potentialKeys) {
-      const option = document.createElement("option");
-      option.value = item.key;
-      option.textContent = `${item.key} (${fullNumber.format(item.itemCount)} definitions)`;
-      keySelect.append(option);
+      const option = document.createElement("label");
+      option.className = "source-key-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = "key";
+      input.value = item.key;
+      const label = document.createElement("span");
+      label.textContent = item.key;
+      const count = document.createElement("small");
+      count.textContent = `${fullNumber.format(item.itemCount)} defs`;
+      option.append(input, label, count);
+      sourceKeyOptions.append(option);
     }
     const summary = index.summary;
     status.textContent = `${fullNumber.format(nodes.length)} node types indexed · ${fullNumber.format(summary.usedNodeTypeCount)} used in workflows · map generated ${new Date(index.generatedAt).toLocaleDateString("en-US")}`;

@@ -58,7 +58,17 @@
               <label>Category <select name="category" id="category"><option value="">All categories</option></select></label>
               <label>Group <select name="group" id="group"><option value="">All groups</option></select></label>
               <label>Package <select name="package" id="package"><option value="">All packages</option></select></label>
-              <label>Source key <select name="key" id="source-key"><option value="">All source keys</option></select></label>
+              <fieldset class="source-key-filter">
+                <legend>Source keys</legend>
+                <details class="multi-select" id="source-key-filter">
+                  <summary><span id="source-key-summary" aria-live="polite">All source keys</span></summary>
+                  <div class="multi-select-panel">
+                    <p>Matches any selected key</p>
+                    <div class="multi-select-options" id="source-key-options" role="group" aria-label="Source keys"></div>
+                    <button class="multi-select-clear" id="clear-source-keys" type="button">Clear selection</button>
+                  </div>
+                </details>
+              </fieldset>
               <label>Usage <select name="usage"><option value="">All nodes</option><option value="used">Used in workflows</option><option value="unused">Not used</option></select></label>
               <label>Capability <select name="capability"><option value="">All capabilities</option><option value="tool">Usable as AI tool</option><option value="credentials">Requires credentials</option><option value="hidden">Hidden nodes</option></select></label>
               <label>Min. workflows <input name="min_workflows" type="number" min="0" inputmode="numeric" placeholder="0"></label>
