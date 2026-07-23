@@ -221,14 +221,28 @@ function updateWorkflowInventoryIcons(theme) {
   }
 }
 
+function nodeDetailsUrl(nodeType) {
+  const url = new URL("nodes/", document.baseURI);
+  url.searchParams.set("node", nodeType);
+  return url.href;
+}
+
 function renderWorkflowNodeInventory(workflow) {
   workflowNodeInventory.replaceChildren();
   const missing = new Set(workflow.missingNodeTypes);
   for (const nodeType of workflow.nodeTypes) {
-    const item = document.createElement("div");
+    const isMissing = missing.has(nodeType);
+    const item = document.createElement(isMissing ? "div" : "a");
     item.className = "workflow-inventory-node";
     item.dataset.nodeType = nodeType;
-    if (missing.has(nodeType)) item.classList.add("missing");
+    if (isMissing) {
+      item.classList.add("missing");
+    } else {
+      item.href = nodeDetailsUrl(nodeType);
+      item.target = "_blank";
+      item.rel = "noopener";
+      item.title = "Open node details in a new tab";
+    }
 
     const icon = document.createElement("div");
     icon.className = "workflow-inventory-icon";
@@ -249,11 +263,9 @@ function renderWorkflowNodeInventory(workflow) {
     text.append(label, type);
     item.append(icon, text);
 
-    if (missing.has(nodeType)) {
-      const status = document.createElement("small");
-      status.textContent = "Unavailable";
-      item.append(status);
-    }
+    const status = document.createElement("small");
+    status.textContent = isMissing ? "Unavailable" : "Details ↗";
+    item.append(status);
     workflowNodeInventory.append(item);
   }
 }
