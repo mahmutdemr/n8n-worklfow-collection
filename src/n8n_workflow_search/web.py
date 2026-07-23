@@ -14,10 +14,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .search import (
     DEFAULT_INDEX_PATH,
     DEFAULT_MAP_PATH,
+    DEFAULT_NODE_CATALOG_PATH,
     DEFAULT_NODE_MAP_PATH,
     get_categories,
     get_stats,
     get_workflow_node_types,
+    node_detail_payloads,
     public_node_index,
     resolved_local_file,
     search_page,
@@ -50,9 +52,14 @@ def _boolean(value: str, name: str) -> bool | None:
 
 
 def create_handler(
-    index_path: Path, map_path: Path, node_map_path: Path = DEFAULT_NODE_MAP_PATH
+    index_path: Path,
+    map_path: Path,
+    node_map_path: Path = DEFAULT_NODE_MAP_PATH,
+    node_catalog_path: Path | None = None,
 ) -> Type[SimpleHTTPRequestHandler]:
     """Create a request handler bound to one local index and collection map."""
+
+    detail_payload_cache: dict[str, dict] | None = None
 
     class WorkflowSearchHandler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
@@ -99,7 +106,31 @@ def create_handler(
             if request.path.startswith("/api/node-icons/"):
                 self._handle_node_icon(unquote(request.path.removeprefix("/api/node-icons/")))
                 return
+            if request.path.startswith("/api/node-details/"):
+                self._handle_node_detail(unquote(request.path.removeprefix("/api/node-details/")))
+                return
             super().do_GET()
+
+        def _handle_node_detail(self, filename: str) -> None:
+            nonlocal detail_payload_cache
+            if "/" in filename or "\\" in filename or not filename.endswith(".json"):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            try:
+                if detail_payload_cache is None:
+                    catalog_path = node_catalog_path or DEFAULT_NODE_CATALOG_PATH
+                    detail_payload_cache = node_detail_payloads(node_map_path, catalog_path)
+                payload = detail_payload_cache.get(filename)
+            except FileNotFoundError as error:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except ValueError as error:
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
+                return
+            if payload is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_json(HTTPStatus.OK, payload)
 
         def _handle_node_icon(self, relative_path: str) -> None:
             icon_directory = (node_map_path.parent / "icons").resolve()
@@ -179,13 +210,16 @@ def serve(
     index_path: Path = DEFAULT_INDEX_PATH,
     map_path: Path = DEFAULT_MAP_PATH,
     node_map_path: Path = DEFAULT_NODE_MAP_PATH,
+    node_catalog_path: Path = DEFAULT_NODE_CATALOG_PATH,
     host: str = "127.0.0.1",
     port: int = 8765,
 ) -> None:
     """Start the local browser UI until interrupted."""
     if not index_path.is_file():
         raise FileNotFoundError(f"Search index was not found: {index_path}. Run 'n8n-search build' first.")
-    server = ThreadingHTTPServer((host, port), create_handler(index_path, map_path, node_map_path))
+    server = ThreadingHTTPServer(
+        (host, port), create_handler(index_path, map_path, node_map_path, node_catalog_path)
+    )
     address = f"http://{host}:{server.server_port}"
     print(f"Workflow search is available at {address}")
     print("Press Ctrl+C to stop the server.")

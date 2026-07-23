@@ -86,7 +86,9 @@ Running `uv run n8n-search export-pages` copies only the light/dark icon files
 selected by the node map into `pages/node-icons/` and writes package-local paths
 to `pages/node-search-index.json`. The public Node Explorer therefore does not
 depend on the local n8n server or third-party icon hosts at runtime. Font Awesome
-license information is included with the exported assets.
+license information is included with the exported assets. The command also creates
+one lazily loaded raw catalog record per node type under `pages/node-details/`, so
+opening a detail panel does not increase the initial search-index download.
 
 ## Browser interface
 
@@ -115,7 +117,9 @@ The Node Explorer supports text search plus category, group, package, usage,
 minimum/maximum workflow counts, and multi-select source-key and capability filters.
 Source keys can include nodes containing any selected key or exclude nodes containing
 the selected keys. Multiple capabilities match nodes with any selected capability.
-Both pages share navigation and the same system/light/dark theme preference.
+Selecting a result opens a shareable detail drawer with usage metrics, metadata,
+version statistics, and a searchable/collapsible raw JSON tree. Both pages share
+navigation and the same system/light/dark theme preference.
 
 ## Search examples
 
@@ -151,8 +155,10 @@ SQLite index.
 ## GitHub Pages
 
 `pages/` contains a standalone public search site. It does not publish workflow JSON
-files, raw node definitions, or local file paths. Regenerate both public search indexes
-after updating either local map, then commit the `pages/` directory:
+files or local file paths. It does publish the installed node catalog as separate,
+per-type raw JSON detail files used by the Node Explorer. Regenerate both public search
+indexes and node detail files after updating either local map, then commit the `pages/`
+directory:
 
 ```bash
 uv run n8n-search export-pages

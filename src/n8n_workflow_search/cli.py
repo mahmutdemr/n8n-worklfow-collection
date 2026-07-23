@@ -22,6 +22,7 @@ from .search import (
     DEFAULT_NODE_CATALOG_PATH,
     DEFAULT_NODE_KEY_STATS_PATH,
     DEFAULT_NODE_MAP_PATH,
+    DEFAULT_NODE_PAGES_DETAIL_DIRECTORY,
     DEFAULT_NODE_PAGES_ICON_DIRECTORY,
     DEFAULT_NODE_PAGES_INDEX_PATH,
     DEFAULT_PAGES_INDEX_PATH,
@@ -107,6 +108,14 @@ def _parser() -> argparse.ArgumentParser:
         "--node-icons-output", type=_path, default=DEFAULT_NODE_PAGES_ICON_DIRECTORY,
         help="public node icon directory",
     )
+    export.add_argument(
+        "--node-details-output", type=_path, default=DEFAULT_NODE_PAGES_DETAIL_DIRECTORY,
+        help="public per-node detail JSON directory",
+    )
+    export.add_argument(
+        "--node-catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH,
+        help="installed node catalog used for raw detail JSON",
+    )
 
     query = subcommands.add_parser("search", help="Search workflow metadata.")
     query.add_argument("query", nargs="?", default="", help="Optional words to search for")
@@ -147,6 +156,10 @@ def _parser() -> argparse.ArgumentParser:
     web.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="workflow-map.json path used to resolve local files")
     web.add_argument("--index", type=_path, default=DEFAULT_INDEX_PATH, help="SQLite index path")
     web.add_argument("--node-map", type=_path, default=DEFAULT_NODE_MAP_PATH, help="node-map.json path")
+    web.add_argument(
+        "--node-catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH,
+        help="installed node catalog used by the node detail panel",
+    )
     web.add_argument("--host", default="127.0.0.1", help="Host to listen on (default: 127.0.0.1)")
     web.add_argument("--port", type=int, default=8765, help="Port to listen on (default: 8765)")
     return parser
@@ -215,7 +228,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "export-pages":
             workflow_count = export_pages_index(args.file, args.output)
-            node_count = export_node_pages_index(args.node_file, args.node_output, args.node_icons_output)
+            node_count = export_node_pages_index(
+                args.node_file,
+                args.node_output,
+                args.node_icons_output,
+                args.node_details_output,
+                args.node_catalog,
+            )
             print(
                 f"Exported {workflow_count:,} workflows to {args.output} and "
                 f"{node_count:,} nodes to {args.node_output}."
@@ -272,6 +291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "serve":
             serve(
                 index_path=args.index, map_path=args.file, node_map_path=args.node_map,
+                node_catalog_path=args.node_catalog,
                 host=args.host, port=args.port,
             )
     except (FileNotFoundError, ValueError, OSError) as error:

@@ -104,6 +104,47 @@
       </section>
     </main>
 
+    <div class="detail-backdrop" id="detail-backdrop" hidden></div>
+    <aside class="node-detail-drawer" id="node-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title" hidden>
+      <div class="detail-drawer-header">
+        <span class="detail-eyebrow">Node details</span>
+        <button class="detail-close" id="detail-close" type="button" aria-label="Close node details">×</button>
+      </div>
+      <div class="detail-scroll">
+        <div class="detail-identity">
+          <div class="node-icon detail-icon"><img alt="" hidden><span aria-hidden="true"></span></div>
+          <div><h2 id="detail-title"></h2><code id="detail-type"></code></div>
+        </div>
+        <p class="detail-description" id="detail-description"></p>
+        <div class="detail-chips" id="detail-chips"></div>
+
+        <section class="detail-section" aria-labelledby="detail-usage-title">
+          <div class="detail-section-heading"><h3 id="detail-usage-title">Usage in the collection</h3><span id="detail-rank"></span></div>
+          <div class="detail-metrics" id="detail-metrics"></div>
+          <div class="version-usage" id="version-usage"></div>
+        </section>
+
+        <section class="detail-section" aria-labelledby="detail-metadata-title">
+          <h3 id="detail-metadata-title">Metadata</h3>
+          <dl class="detail-metadata" id="detail-metadata"></dl>
+        </section>
+
+        <details class="raw-json-section" id="raw-json-section">
+          <summary><span><strong>Raw source JSON</strong><small>Loaded only when opened</small></span><span aria-hidden="true">⌄</span></summary>
+          <div class="raw-json-content">
+            <div class="json-toolbar">
+              <label><span class="visually-hidden">Find in raw JSON</span><input id="json-filter" type="search" placeholder="Find a key or value…" autocomplete="off"></label>
+              <div><button id="json-expand" type="button">Expand all</button><button id="json-collapse" type="button">Collapse all</button><button id="json-copy" type="button">Copy JSON</button></div>
+            </div>
+            <p class="json-status" id="json-status" aria-live="polite">Open this section to load the source definition.</p>
+            <div class="json-tree" id="json-tree"></div>
+          </div>
+        </details>
+
+        <div class="detail-actions"><a id="detail-documentation" target="_blank" rel="noreferrer">Open documentation <span aria-hidden="true">↗</span></a></div>
+      </div>
+    </aside>
+
     <template id="result-template">
       <article class="result-card node-card">
         <div class="result-topline"><span class="node-package"></span><span class="node-rank"></span></div>
@@ -113,7 +154,7 @@
         <div class="chips"></div>
         <div class="node-facts"></div>
         <details class="metadata-details"><summary>Metadata details</summary><dl><div><dt>Versions</dt><dd class="versions"></dd></div><div><dt>Credentials</dt><dd class="credentials"></dd></div><div><dt>Source keys</dt><dd class="source-keys"></dd></div></dl></details>
-        <div class="result-actions"><a class="gallery documentation" target="_blank" rel="noreferrer">Documentation <span aria-hidden="true">↗</span></a></div>
+        <div class="result-actions"><button class="view-details" type="button">View details <span aria-hidden="true">→</span></button><a class="gallery documentation" target="_blank" rel="noreferrer">Documentation <span aria-hidden="true">↗</span></a></div>
       </article>
     </template>
   </body>

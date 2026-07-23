@@ -21,6 +21,16 @@ const capabilityFilter = document.querySelector("#capability-filter");
 const capabilityOptions = document.querySelector("#capability-options");
 const capabilitySummary = document.querySelector("#capability-summary");
 const clearCapabilities = document.querySelector("#clear-capabilities");
+const detailDrawer = document.querySelector("#node-detail-drawer");
+const detailBackdrop = document.querySelector("#detail-backdrop");
+const detailClose = document.querySelector("#detail-close");
+const rawJsonSection = document.querySelector("#raw-json-section");
+const jsonFilter = document.querySelector("#json-filter");
+const jsonTree = document.querySelector("#json-tree");
+const jsonStatus = document.querySelector("#json-status");
+const jsonExpand = document.querySelector("#json-expand");
+const jsonCollapse = document.querySelector("#json-collapse");
+const jsonCopy = document.querySelector("#json-copy");
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fullNumber = new Intl.NumberFormat("en-US");
@@ -29,6 +39,13 @@ const pageSize = 30;
 let currentOffset = 0;
 let nodes = [];
 let iconBaseUrl = "";
+let detailBaseUrl = "";
+let selectedNode = null;
+let selectedRawJson = null;
+let lastFocusedElement = null;
+let detailRequestId = 0;
+let detailCloseTimer = null;
+const rawJsonCache = new Map();
 
 const themeStorageKey = "n8n-workflow-theme";
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -138,6 +155,272 @@ function iconSources(icon) {
   };
 }
 
+function configureIcon(container, node) {
+  const image = container.querySelector("img");
+  const fallback = container.querySelector("span");
+  container.classList.toggle("monochrome", ["n8n-design-system", "fontawesome", "fallback"].includes(node.icon?.source));
+  fallback.textContent = (node.displayName || node.name || "?").trim().slice(0, 2).toUpperCase();
+  const sources = iconSources(node.icon);
+  image.dataset.light = sources.light;
+  image.dataset.dark = sources.dark;
+  const source = sources[document.documentElement.dataset.theme] || sources.light || sources.dark;
+  image.hidden = !source;
+  fallback.hidden = Boolean(source);
+  if (source) {
+    image.src = source;
+    image.addEventListener("error", () => { image.hidden = true; fallback.hidden = false; }, { once: true });
+  }
+}
+
+function appendDetailMetric(container, value, label) {
+  const metric = document.createElement("div");
+  const strong = document.createElement("strong");
+  const span = document.createElement("span");
+  strong.textContent = value;
+  span.textContent = label;
+  metric.append(strong, span);
+  container.append(metric);
+}
+
+function appendMetadataRow(container, label, value) {
+  const row = document.createElement("div");
+  const term = document.createElement("dt");
+  const description = document.createElement("dd");
+  term.textContent = label;
+  if (Array.isArray(value)) {
+    if (!value.length) description.textContent = "None";
+    else for (const item of value) description.append(createChip(String(item)));
+  } else {
+    description.textContent = String(value || "None");
+  }
+  row.append(term, description);
+  container.append(row);
+}
+
+function updateDetailUrl(nodeType, replace = false) {
+  const url = new URL(window.location.href);
+  if (nodeType) url.searchParams.set("node", nodeType);
+  else url.searchParams.delete("node");
+  history[replace ? "replaceState" : "pushState"]({ nodeType: nodeType || null }, "", url);
+}
+
+function openNodeDetails(node, { updateUrl = true } = {}) {
+  if (!node) return;
+  window.clearTimeout(detailCloseTimer);
+  selectedNode = node;
+  selectedRawJson = null;
+  detailRequestId += 1;
+  lastFocusedElement = document.activeElement;
+  document.querySelector("#detail-title").textContent = node.displayName || node.name;
+  document.querySelector("#detail-type").textContent = node.type;
+  document.querySelector("#detail-description").textContent = node.description || "No description is available for this node.";
+  configureIcon(document.querySelector(".detail-icon"), node);
+
+  const chips = document.querySelector("#detail-chips");
+  chips.replaceChildren();
+  for (const category of node.categories) chips.append(createChip(category));
+  for (const group of node.groups) chips.append(createChip(group, "group-chip"));
+  if (node.usableAsTool) chips.append(createChip("Usable as AI tool", "tool-chip"));
+  if (node.hidden) chips.append(createChip("Hidden", "hidden-chip"));
+
+  document.querySelector("#detail-rank").textContent = node.usage.workflowCount
+    ? `#${fullNumber.format(node.usage.workflowRank)} by workflow reach`
+    : "Not used in this collection";
+  const metrics = document.querySelector("#detail-metrics");
+  metrics.replaceChildren();
+  appendDetailMetric(metrics, fullNumber.format(node.usage.workflowCount), "workflows");
+  appendDetailMetric(metrics, fullNumber.format(node.usage.instanceCount), "instances");
+  appendDetailMetric(metrics, `${percentNumber.format(node.usage.workflowPercentage)}%`, "workflow reach");
+  appendDetailMetric(metrics, percentNumber.format(node.usage.averageInstancesPerUsingWorkflow), "avg. per workflow");
+  appendDetailMetric(metrics, fullNumber.format(node.usage.enabledInstanceCount), "enabled instances");
+  appendDetailMetric(metrics, fullNumber.format(node.usage.disabledInstanceCount), "disabled instances");
+
+  const versionUsage = document.querySelector("#version-usage");
+  versionUsage.replaceChildren();
+  if (node.usage.versions.length) {
+    const heading = document.createElement("h4");
+    heading.textContent = "Observed workflow versions";
+    const table = document.createElement("table");
+    table.innerHTML = "<thead><tr><th>Version</th><th>Workflows</th><th>Instances</th></tr></thead>";
+    const body = document.createElement("tbody");
+    for (const version of node.usage.versions) {
+      const row = document.createElement("tr");
+      for (const value of [version.version, fullNumber.format(version.workflowCount), fullNumber.format(version.instanceCount)]) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    table.append(body);
+    versionUsage.append(heading, table);
+  }
+
+  const metadata = document.querySelector("#detail-metadata");
+  metadata.replaceChildren();
+  appendMetadataRow(metadata, "Package", node.packageName);
+  appendMetadataRow(metadata, "Internal name", node.name);
+  appendMetadataRow(metadata, "Catalog definitions", fullNumber.format(node.definitionCount));
+  appendMetadataRow(metadata, "Available versions", node.availableVersions);
+  appendMetadataRow(metadata, "Credentials", node.credentials);
+  appendMetadataRow(metadata, "Source keys", node.keys);
+
+  const documentation = document.querySelector("#detail-documentation");
+  documentation.hidden = !node.documentationUrls.length;
+  if (node.documentationUrls.length) documentation.href = node.documentationUrls[0];
+
+  rawJsonSection.open = false;
+  jsonFilter.value = "";
+  jsonTree.replaceChildren();
+  jsonStatus.hidden = false;
+  jsonStatus.textContent = "Open this section to load the source definition.";
+  detailBackdrop.hidden = false;
+  detailDrawer.hidden = false;
+  document.body.classList.add("detail-open");
+  requestAnimationFrame(() => {
+    detailBackdrop.classList.add("visible");
+    detailDrawer.classList.add("visible");
+    detailClose.focus();
+  });
+  if (updateUrl) updateDetailUrl(node.type);
+}
+
+function closeNodeDetails({ updateUrl = true } = {}) {
+  if (detailDrawer.hidden) return;
+  detailRequestId += 1;
+  selectedNode = null;
+  selectedRawJson = null;
+  detailBackdrop.classList.remove("visible");
+  detailDrawer.classList.remove("visible");
+  document.body.classList.remove("detail-open");
+  detailCloseTimer = window.setTimeout(() => {
+    detailBackdrop.hidden = true;
+    detailDrawer.hidden = true;
+  }, 180);
+  if (updateUrl) updateDetailUrl(null);
+  if (lastFocusedElement?.isConnected) lastFocusedElement.focus();
+}
+
+function jsonValueText(value) {
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  return String(value);
+}
+
+function jsonContains(value, key, queryText) {
+  if (!queryText) return true;
+  if (normalize(key).includes(queryText)) return true;
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value).some(([childKey, childValue]) => jsonContains(childValue, childKey, queryText));
+  }
+  return normalize(jsonValueText(value)).includes(queryText);
+}
+
+function createJsonNode(value, key, depth, queryText = "", includeChildren = false) {
+  const keyMatches = Boolean(queryText && normalize(key).includes(queryText));
+  if (queryText && !includeChildren && !jsonContains(value, key, queryText)) return null;
+  const branch = value !== null && typeof value === "object";
+  if (!branch) {
+    const row = document.createElement("div");
+    row.className = `json-leaf json-${value === null ? "null" : typeof value}`;
+    const keyLabel = document.createElement("span");
+    keyLabel.className = "json-key";
+    keyLabel.textContent = key === null ? "" : `${key}: `;
+    const valueLabel = document.createElement("span");
+    valueLabel.className = "json-value";
+    valueLabel.textContent = jsonValueText(value);
+    row.append(keyLabel, valueLabel);
+    return row;
+  }
+
+  const entries = Array.isArray(value) ? value.map((item, index) => [String(index), item]) : Object.entries(value);
+  const details = document.createElement("details");
+  details.className = "json-branch";
+  const summary = document.createElement("summary");
+  const keyLabel = document.createElement("span");
+  keyLabel.className = "json-key";
+  keyLabel.textContent = key === null ? "root" : key;
+  const count = document.createElement("span");
+  count.className = "json-count";
+  count.textContent = `${Array.isArray(value) ? "[" : "{"}${fullNumber.format(entries.length)}${Array.isArray(value) ? "]" : "}"}`;
+  summary.append(keyLabel, count);
+  const children = document.createElement("div");
+  children.className = "json-children";
+  const populate = () => {
+    if (details.dataset.loaded === "true") return;
+    const fragment = document.createDocumentFragment();
+    const showAllChildren = includeChildren || keyMatches;
+    for (const [childKey, childValue] of entries) {
+      const child = createJsonNode(childValue, childKey, depth + 1, queryText, showAllChildren);
+      if (child) fragment.append(child);
+    }
+    children.append(fragment);
+    details.dataset.loaded = "true";
+  };
+  details._populateJsonChildren = populate;
+  details.addEventListener("toggle", () => { if (details.open) populate(); });
+  details.append(summary, children);
+  if ((queryText && !includeChildren) || depth < 1) {
+    details.open = true;
+    populate();
+  }
+  return details;
+}
+
+function renderRawJson() {
+  jsonTree.replaceChildren();
+  if (!selectedRawJson) return;
+  const filterText = normalize(jsonFilter.value.trim());
+  if (filterText && !jsonContains(selectedRawJson, null, filterText)) {
+    jsonStatus.hidden = false;
+    jsonStatus.textContent = `No raw JSON keys or values match “${jsonFilter.value.trim()}”.`;
+    return;
+  }
+  jsonStatus.hidden = true;
+  jsonTree.append(createJsonNode(selectedRawJson, null, 0, filterText));
+}
+
+async function loadRawJson() {
+  if (!selectedNode || selectedRawJson) return;
+  const requestId = ++detailRequestId;
+  jsonStatus.hidden = false;
+  jsonStatus.textContent = "Loading source definition…";
+  try {
+    if (!rawJsonCache.has(selectedNode.detailId)) {
+      const url = new URL(selectedNode.detailId, new URL(detailBaseUrl, document.baseURI));
+      rawJsonCache.set(selectedNode.detailId, fetch(url).then((response) => {
+        if (!response.ok) throw new Error("The raw node definition could not be loaded.");
+        return response.json();
+      }));
+    }
+    const payload = await rawJsonCache.get(selectedNode.detailId);
+    if (requestId !== detailRequestId || !selectedNode) return;
+    selectedRawJson = payload;
+    renderRawJson();
+  } catch (error) {
+    rawJsonCache.delete(selectedNode?.detailId);
+    if (requestId !== detailRequestId) return;
+    jsonStatus.hidden = false;
+    jsonStatus.textContent = error.message;
+  }
+}
+
+function setJsonBranches(open) {
+  const visit = (root) => {
+    for (const branch of root.querySelectorAll(":scope > .json-branch")) {
+      if (open) {
+        branch._populateJsonChildren?.();
+        branch.open = true;
+        visit(branch.querySelector(":scope > .json-children"));
+      } else {
+        if (branch.dataset.loaded === "true") visit(branch.querySelector(":scope > .json-children"));
+        branch.open = false;
+      }
+    }
+  };
+  visit(jsonTree);
+}
+
 function renderResults(results, total, offset) {
   resultList.replaceChildren();
   if (!results.length) {
@@ -152,6 +435,7 @@ function renderResults(results, total, offset) {
 
   for (const node of results) {
     const card = template.content.cloneNode(true);
+    const article = card.querySelector(".node-card");
     card.querySelector(".node-package").textContent = node.packageName;
     card.querySelector(".node-rank").textContent = node.usage.workflowCount
       ? `#${fullNumber.format(node.usage.workflowRank)} by workflow reach`
@@ -160,23 +444,7 @@ function renderResults(results, total, offset) {
     card.querySelector(".node-type").textContent = node.type;
     card.querySelector(".node-description").textContent = node.description || "No description is available for this node.";
 
-    const icon = card.querySelector(".node-icon");
-    const image = icon.querySelector("img");
-    const fallback = icon.querySelector("span");
-    if (["n8n-design-system", "fontawesome", "fallback"].includes(node.icon?.source)) {
-      icon.classList.add("monochrome");
-    }
-    fallback.textContent = (node.displayName || node.name || "?").trim().slice(0, 2).toUpperCase();
-    const sources = iconSources(node.icon);
-    image.dataset.light = sources.light;
-    image.dataset.dark = sources.dark;
-    const source = sources[document.documentElement.dataset.theme] || sources.light || sources.dark;
-    if (source) {
-      image.src = source;
-      image.hidden = false;
-      fallback.hidden = true;
-      image.addEventListener("error", () => { image.hidden = true; fallback.hidden = false; }, { once: true });
-    }
+    configureIcon(card.querySelector(".node-icon"), node);
 
     card.querySelector(".workflow-count").textContent = compactNumber.format(node.usage.workflowCount);
     card.querySelector(".instance-count").textContent = compactNumber.format(node.usage.instanceCount);
@@ -201,6 +469,10 @@ function renderResults(results, total, offset) {
     const documentation = card.querySelector(".documentation");
     if (node.documentationUrls.length) documentation.href = node.documentationUrls[0];
     else documentation.hidden = true;
+    card.querySelector(".view-details").addEventListener("click", () => openNodeDetails(node));
+    article.addEventListener("click", (event) => {
+      if (!event.target.closest("a, button, details")) openNodeDetails(node);
+    });
     fragment.append(card);
   }
 
@@ -314,11 +586,49 @@ sourceKeyFilter.addEventListener("keydown", (event) => closeOnEscape(sourceKeyFi
 capabilityFilter.addEventListener("keydown", (event) => closeOnEscape(capabilityFilter, event));
 previousPage.addEventListener("click", () => runSearch(undefined, Math.max(0, currentOffset - pageSize)));
 nextPage.addEventListener("click", () => runSearch(undefined, currentOffset + pageSize));
+detailClose.addEventListener("click", () => closeNodeDetails());
+detailBackdrop.addEventListener("click", () => closeNodeDetails());
+rawJsonSection.addEventListener("toggle", () => { if (rawJsonSection.open) loadRawJson(); });
+jsonFilter.addEventListener("input", renderRawJson);
+jsonExpand.addEventListener("click", () => setJsonBranches(true));
+jsonCollapse.addEventListener("click", () => setJsonBranches(false));
+jsonCopy.addEventListener("click", async () => {
+  if (!selectedRawJson) return;
+  const originalText = jsonCopy.textContent;
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(selectedRawJson, null, 2));
+    jsonCopy.textContent = "Copied";
+  } catch {
+    jsonCopy.textContent = "Copy failed";
+  }
+  window.setTimeout(() => { jsonCopy.textContent = originalText; }, 1400);
+});
 document.addEventListener("keydown", (event) => {
+  if (!detailDrawer.hidden && event.key === "Escape") {
+    event.preventDefault();
+    closeNodeDetails();
+    return;
+  }
+  if (!detailDrawer.hidden && event.key === "Tab") {
+    const focusable = [...detailDrawer.querySelectorAll('button:not([disabled]), a[href]:not([hidden]), input:not([disabled]), summary')]
+      .filter((element) => element.offsetParent !== null);
+    if (focusable.length) {
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+    return;
+  }
   if (event.key === "/" && document.activeElement !== query && !["INPUT", "SELECT"].includes(document.activeElement.tagName)) {
     event.preventDefault();
     query.focus();
   }
+});
+window.addEventListener("popstate", () => {
+  const nodeType = new URL(window.location.href).searchParams.get("node");
+  if (!nodeType) closeNodeDetails({ updateUrl: false });
+  else openNodeDetails(nodes.find((node) => node.type === nodeType), { updateUrl: false });
 });
 document.addEventListener("click", (event) => {
   for (const filter of document.querySelectorAll(".multi-select[open]")) {
@@ -333,6 +643,7 @@ fetch(document.body.dataset.indexUrl)
   })
   .then((index) => {
     iconBaseUrl = index.iconBaseUrl;
+    detailBaseUrl = index.detailBaseUrl;
     nodes = index.nodes;
     addCountedOptions(document.querySelector("#category"), nodes.flatMap((node) => node.categories));
     addCountedOptions(document.querySelector("#group"), nodes.flatMap((node) => node.groups));
@@ -346,6 +657,12 @@ fetch(document.body.dataset.indexUrl)
     const summary = index.summary;
     status.textContent = `${fullNumber.format(nodes.length)} node types indexed · ${fullNumber.format(summary.usedNodeTypeCount)} used in workflows · map generated ${new Date(index.generatedAt).toLocaleDateString("en-US")}`;
     runSearch();
+    const requestedNodeType = new URL(window.location.href).searchParams.get("node");
+    if (requestedNodeType) {
+      const requestedNode = nodes.find((node) => node.type === requestedNodeType);
+      if (requestedNode) openNodeDetails(requestedNode, { updateUrl: false });
+      else updateDetailUrl(null, true);
+    }
   })
   .catch((error) => {
     status.textContent = error.message;

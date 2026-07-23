@@ -337,11 +337,27 @@ def test_pages_export_contains_only_public_search_metadata(tmp_path: Path) -> No
 
 def test_node_pages_export_contains_search_metadata_without_local_sources(tmp_path: Path) -> None:
     map_path = tmp_path / "node-map.json"
+    catalog_path = tmp_path / "n8n-nodes.json"
     output_path = tmp_path / "pages" / "node-search-index.json"
     icon_output_path = tmp_path / "pages" / "node-icons"
+    detail_output_path = tmp_path / "pages" / "node-details"
     local_icon_path = tmp_path / "icons" / "n8n" / "foo.svg"
     local_icon_path.parent.mkdir(parents=True)
     local_icon_path.write_text("<svg xmlns=\"http://www.w3.org/2000/svg\"/>", encoding="utf-8")
+    catalog_path.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "n8n-nodes-base.foo",
+                    "displayName": "Foo",
+                    "version": [1, 2],
+                    "credentials": [{"name": "fooApi", "required": True}],
+                    "properties": [{"displayName": "Operation", "name": "operation", "type": "string"}],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
     map_path.write_text(
         json.dumps(
             {
@@ -391,7 +407,9 @@ def test_node_pages_export_contains_search_metadata_without_local_sources(tmp_pa
         encoding="utf-8",
     )
 
-    assert export_node_pages_index(map_path, output_path, icon_output_path) == 1
+    assert export_node_pages_index(
+        map_path, output_path, icon_output_path, detail_output_path, catalog_path
+    ) == 1
     exported = json.loads(output_path.read_text(encoding="utf-8"))
     record = exported["nodes"][0]
 
@@ -405,8 +423,13 @@ def test_node_pages_export_contains_search_metadata_without_local_sources(tmp_pa
     assert record["usage"]["workflowCount"] == 4
     assert exported["schemaVersion"] == 2
     assert exported["iconBaseUrl"] == "../node-icons/"
+    assert exported["detailBaseUrl"] == "../node-details/"
     assert exported["iconFileCount"] == 1
+    assert exported["detailFileCount"] == 1
     assert (icon_output_path / "n8n" / "foo.svg").is_file()
+    detail_payload = json.loads((detail_output_path / record["detailId"]).read_text(encoding="utf-8"))
+    assert detail_payload["type"] == "n8n-nodes-base.foo"
+    assert detail_payload["definitions"][0]["properties"][0]["name"] == "operation"
     assert "iconUrl" not in record
     assert "sources" not in exported
     assert "definitions" not in record

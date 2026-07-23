@@ -26,6 +26,7 @@ DEFAULT_INDEX_PATH = Path(".n8n-search/workflows.sqlite3")
 DEFAULT_PAGES_INDEX_PATH = Path("pages/search-index.json")
 DEFAULT_NODE_PAGES_INDEX_PATH = Path("pages/node-search-index.json")
 DEFAULT_NODE_PAGES_ICON_DIRECTORY = Path("pages/node-icons")
+DEFAULT_NODE_PAGES_DETAIL_DIRECTORY = Path("pages/node-details")
 
 
 @dataclass(frozen=True)
@@ -761,10 +762,73 @@ def _public_icon(icon: Any) -> dict[str, Any]:
     }
 
 
+def _node_detail_filename(node_type: str) -> str:
+    """Return a stable, filesystem-safe filename for one node type."""
+    digest = hashlib.sha256(node_type.encode("utf-8")).hexdigest()[:24]
+    return f"{digest}.json"
+
+
+def _load_node_catalog(node_catalog_path: Path) -> list[dict[str, Any]]:
+    try:
+        with node_catalog_path.open(encoding="utf-8") as source:
+            catalog = json.load(source)
+    except FileNotFoundError as error:
+        raise FileNotFoundError(f"Node catalog was not found: {node_catalog_path}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Node catalog is not valid JSON: {node_catalog_path} ({error})") from error
+    if not isinstance(catalog, list):
+        raise ValueError("Node catalog must be a JSON list.")
+    if not all(isinstance(definition, dict) and definition.get("name") for definition in catalog):
+        raise ValueError("Every node catalog record must be an object containing a node name.")
+    return catalog
+
+
+def node_detail_payloads(
+    node_map_path: Path = DEFAULT_NODE_MAP_PATH,
+    node_catalog_path: Path = DEFAULT_NODE_CATALOG_PATH,
+) -> dict[str, dict[str, Any]]:
+    """Build raw, per-node detail payloads keyed by their public detail filename."""
+    try:
+        with node_map_path.open(encoding="utf-8") as source:
+            node_map = json.load(source)
+    except FileNotFoundError as error:
+        raise FileNotFoundError(f"Node map was not found: {node_map_path}. Run 'n8n-search build-node-map' first.") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Node map is not valid JSON: {node_map_path} ({error})") from error
+    map_nodes = node_map.get("nodes") if isinstance(node_map, dict) else None
+    if not isinstance(map_nodes, list):
+        raise ValueError("Node map must be an object containing a 'nodes' list.")
+
+    definitions_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for definition in _load_node_catalog(node_catalog_path):
+        definitions_by_type[str(definition["name"])].append(definition)
+
+    map_types = {str(node.get("type") or "") for node in map_nodes if isinstance(node, dict)}
+    catalog_types = set(definitions_by_type)
+    if map_types != catalog_types:
+        raise ValueError(
+            "Node catalog does not match the node map "
+            f"({len(map_types - catalog_types)} map-only, {len(catalog_types - map_types)} catalog-only types)."
+        )
+
+    generated_at = node_map.get("generatedAt")
+    return {
+        _node_detail_filename(node_type): {
+            "schemaVersion": 1,
+            "generatedAt": generated_at,
+            "type": node_type,
+            "definitionCount": len(definitions),
+            "definitions": definitions,
+        }
+        for node_type, definitions in definitions_by_type.items()
+    }
+
+
 def public_node_index(
     node_map_path: Path = DEFAULT_NODE_MAP_PATH,
     *,
     icon_base_url: str = "/api/node-icons/",
+    detail_base_url: str = "/api/node-details/",
 ) -> dict[str, Any]:
     """Return the public, browser-searchable subset of the local node map."""
     try:
@@ -799,6 +863,7 @@ def public_node_index(
                 "definitionCount": int(catalog.get("definitionCount") or 0),
                 "keys": catalog.get("keys") or [],
                 "availableVersions": catalog.get("availableVersions") or [],
+                "detailId": _node_detail_filename(str(node.get("type") or "")),
                 "usage": {
                     "workflowCount": int(usage.get("workflowCount") or 0),
                     "workflowPercentage": float(usage.get("workflowPercentage") or 0),
@@ -819,6 +884,7 @@ def public_node_index(
         "schemaVersion": 2,
         "generatedAt": payload.get("generatedAt"),
         "iconBaseUrl": icon_base_url,
+        "detailBaseUrl": detail_base_url,
         "summary": payload.get("summary") or {},
         "potentialKeys": payload.get("potentialKeys") or [],
         "nodes": records,
@@ -829,9 +895,15 @@ def export_node_pages_index(
     node_map_path: Path = DEFAULT_NODE_MAP_PATH,
     output_path: Path = DEFAULT_NODE_PAGES_INDEX_PATH,
     icon_output_directory: Path = DEFAULT_NODE_PAGES_ICON_DIRECTORY,
+    detail_output_directory: Path = DEFAULT_NODE_PAGES_DETAIL_DIRECTORY,
+    node_catalog_path: Path = DEFAULT_NODE_CATALOG_PATH,
 ) -> int:
     """Export the minimal public node index used by the GitHub Pages site."""
-    public_index = public_node_index(node_map_path, icon_base_url="../node-icons/")
+    public_index = public_node_index(
+        node_map_path,
+        icon_base_url="../node-icons/",
+        detail_base_url="../node-details/",
+    )
     selected_icon_paths = {
         node["icon"][variant]
         for node in public_index["nodes"]
@@ -879,7 +951,36 @@ def export_node_pages_index(
         if staging.exists():
             shutil.rmtree(staging)
 
+    detail_payloads = node_detail_payloads(node_map_path, node_catalog_path)
+    detail_output_directory.parent.mkdir(parents=True, exist_ok=True)
+    detail_staging = Path(tempfile.mkdtemp(prefix=".node-details.", dir=detail_output_directory.parent))
+    try:
+        for filename, payload in detail_payloads.items():
+            destination = detail_staging / filename
+            with destination.open("w", encoding="utf-8") as output:
+                json.dump(payload, output, ensure_ascii=False, separators=(",", ":"))
+                output.write("\n")
+
+        detail_backup = detail_output_directory.parent / f".{detail_output_directory.name}.backup"
+        if detail_backup.exists():
+            shutil.rmtree(detail_backup)
+        if detail_output_directory.exists():
+            detail_output_directory.replace(detail_backup)
+        try:
+            detail_staging.replace(detail_output_directory)
+        except BaseException:
+            if detail_backup.exists() and not detail_output_directory.exists():
+                detail_backup.replace(detail_output_directory)
+            raise
+        else:
+            if detail_backup.exists():
+                shutil.rmtree(detail_backup)
+    finally:
+        if detail_staging.exists():
+            shutil.rmtree(detail_staging)
+
     public_index["iconFileCount"] = len(selected_icon_paths)
+    public_index["detailFileCount"] = len(detail_payloads)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent, delete=False
