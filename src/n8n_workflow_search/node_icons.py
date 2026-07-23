@@ -452,7 +452,9 @@ def download_node_icons(
             "n8nIconCount": len(n8n_icon_names),
             "fontAwesomeIconCount": len(fontawesome_icon_names),
             "fallbackNodeTypeCount": fallback_node_types,
-            "fileCount": len(file_records) + 1,
+            "iconFileCount": len(file_records),
+            "supportFileCount": 2,
+            "fileCount": len(file_records) + 2,
             "totalBytes": total_bytes,
         }
         manifest = {
@@ -505,6 +507,6 @@ def download_node_icons(
         n8n_icons=len(n8n_icon_names),
         fontawesome_icons=len(fontawesome_icon_names),
         fallback_node_types=fallback_node_types,
-        files=len(file_records) + 1,
+        files=len(file_records),
         bytes=total_bytes,
     )
