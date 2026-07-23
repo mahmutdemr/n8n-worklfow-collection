@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from n8n_workflow_search.node_icons import merge_icon_manifest
 from n8n_workflow_search.search import (
     build_index,
     build_node_map,
@@ -350,6 +351,57 @@ def test_node_pages_export_contains_search_metadata_without_local_sources(tmp_pa
     assert record["usage"]["workflowCount"] == 4
     assert "sources" not in exported
     assert "definitions" not in record
+
+
+def test_merge_icon_manifest_enriches_every_node_and_rejects_mismatches(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "icons" / "manifest.json"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "generatedAt": "2026-07-23T00:00:00Z",
+                "summary": {"nodeTypeCount": 2, "resolvedNodeTypeCount": 2},
+                "nodes": {
+                    "n8n-nodes-base.foo": {
+                        "light": "icons/n8n/foo.svg",
+                        "dark": "icons/n8n/foo.svg",
+                        "source": "n8n-design-system",
+                        "fallback": False,
+                    },
+                    "n8n-nodes-base.bar": {
+                        "light": "icons/fallback.svg",
+                        "dark": "icons/fallback.svg",
+                        "source": "fallback",
+                        "fallback": True,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    node_map = {
+        "schemaVersion": 1,
+        "nodes": [
+            {"type": "n8n-nodes-base.foo"},
+            {"type": "n8n-nodes-base.bar"},
+        ],
+    }
+
+    merged = merge_icon_manifest(node_map, manifest_path)
+
+    assert merged["schemaVersion"] == 2
+    assert merged["nodes"][0]["icon"]["source"] == "n8n-design-system"
+    assert merged["nodes"][1]["icon"]["fallback"] is True
+    assert merged["nodeIconCatalog"]["summary"]["resolvedNodeTypeCount"] == 2
+
+    merged["nodes"].append({"type": "n8n-nodes-base.extra"})
+    try:
+        merge_icon_manifest(merged, manifest_path)
+    except ValueError as error:
+        assert "does not match" in str(error)
+    else:
+        raise AssertionError("A manifest/node-map mismatch must be rejected.")
 
 
 def test_web_handler_binds_the_selected_paths(tmp_path: Path) -> None:

@@ -545,6 +545,11 @@ def build_node_map(
         "nodes": node_records,
         "unmappedNodeTypes": unmapped_records,
     }
+    icon_manifest_path = output_path.parent / "icons" / "manifest.json"
+    if icon_manifest_path.is_file():
+        from .node_icons import merge_icon_manifest
+
+        payload = merge_icon_manifest(payload, icon_manifest_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     _write_map_atomic(payload, output_path)
     return NodeMapSummary(

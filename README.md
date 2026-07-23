@@ -64,6 +64,21 @@ The map also contains an `unmappedNodeTypes` audit list for types found in the
 workflow collection but absent from `collection/n8n-nodes.json`. Since the
 entire `collection/` directory is ignored, this generated map remains local.
 
+### Local node icons
+
+With the local n8n container running, download and catalog every node icon:
+
+```bash
+uv run n8n-search download-node-icons
+```
+
+The command stores content-addressed `iconUrl` assets, n8n design-system SVGs,
+Font Awesome Free SVGs and license information under `collection/nodes/icons/`.
+It creates `manifest.json`, records light/dark local paths and checksums for all
+unique node types, and enriches `node-map.json` with the selected local icon.
+Relative catalog URLs are resolved against `http://localhost:5678/` by default;
+use `--n8n-url` or `--container` when the local installation differs.
+
 ## Browser interface
 
 Start the local interface with:

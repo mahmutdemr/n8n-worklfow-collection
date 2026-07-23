@@ -9,6 +9,13 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Sequence
 
+from .node_icons import (
+    DEFAULT_FONTAWESOME_VERSION,
+    DEFAULT_N8N_BASE_URL,
+    DEFAULT_N8N_CONTAINER,
+    DEFAULT_NODE_ICON_DIRECTORY,
+    download_node_icons,
+)
 from .search import (
     DEFAULT_INDEX_PATH,
     DEFAULT_MAP_PATH,
@@ -73,6 +80,18 @@ def _parser() -> argparse.ArgumentParser:
         "--workflows", type=_path, default=DEFAULT_WORKFLOW_DIRECTORY, help="directory containing workflow JSON files"
     )
     node_map.add_argument("--output", type=_path, default=DEFAULT_NODE_MAP_PATH, help="generated node map path")
+
+    icons = subcommands.add_parser(
+        "download-node-icons", help="Download and catalog a local icon for every installed node type."
+    )
+    icons.add_argument("--catalog", type=_path, default=DEFAULT_NODE_CATALOG_PATH, help="installed node catalog path")
+    icons.add_argument("--map", type=_path, default=DEFAULT_NODE_MAP_PATH, help="node map to enrich with local icons")
+    icons.add_argument("--output", type=_path, default=DEFAULT_NODE_ICON_DIRECTORY, help="generated icon directory")
+    icons.add_argument("--n8n-url", default=DEFAULT_N8N_BASE_URL, help="running n8n base URL")
+    icons.add_argument("--container", default=DEFAULT_N8N_CONTAINER, help="Docker container containing n8n")
+    icons.add_argument(
+        "--fontawesome-version", default=DEFAULT_FONTAWESOME_VERSION, help="Font Awesome Free version"
+    )
 
     export = subcommands.add_parser("export-pages", help="Export the minimal public index used by the GitHub Pages site.")
     export.add_argument("--file", type=_path, default=DEFAULT_MAP_PATH, help="primary workflow map path")
@@ -161,6 +180,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"{summary.node_types:,} unique node types, {summary.used_node_types:,} used across "
                 f"{summary.workflows:,} workflows and {summary.node_instances:,} node instances; "
                 f"{summary.unmapped_node_types:,} workflow node types are not in the catalog."
+            )
+        elif args.command == "download-node-icons":
+            summary = download_node_icons(
+                args.catalog,
+                args.map,
+                args.output,
+                n8n_base_url=args.n8n_url,
+                docker_container=args.container,
+                fontawesome_version=args.fontawesome_version,
+            )
+            print(
+                f"Stored {summary.files:,} icon files ({summary.bytes:,} bytes) for "
+                f"{summary.resolved_node_types:,}/{summary.node_types:,} node types: "
+                f"{summary.stored_url_assets:,} URL assets, {summary.n8n_icons:,} n8n icons, "
+                f"{summary.fontawesome_icons:,} Font Awesome icons, and "
+                f"{summary.fallback_node_types:,} fallback node types."
             )
         elif args.command == "export-pages":
             workflow_count = export_pages_index(args.file, args.output)
