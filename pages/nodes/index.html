@@ -58,21 +58,35 @@
               <label>Category <select name="category" id="category"><option value="">All categories</option></select></label>
               <label>Group <select name="group" id="group"><option value="">All groups</option></select></label>
               <label>Package <select name="package" id="package"><option value="">All packages</option></select></label>
-              <fieldset class="source-key-filter">
+              <fieldset class="multi-filter">
                 <legend>Source keys</legend>
                 <details class="multi-select" id="source-key-filter">
                   <summary><span id="source-key-summary" aria-live="polite">All source keys</span></summary>
                   <div class="multi-select-panel">
-                    <p>Matches any selected key</p>
+                    <div class="multi-select-mode" role="group" aria-label="Source key matching rule">
+                      <label><input type="radio" name="key_mode" value="include" checked><span>Include any</span></label>
+                      <label><input type="radio" name="key_mode" value="exclude"><span>Exclude all</span></label>
+                    </div>
+                    <p id="source-key-hint">Show nodes containing any selected key</p>
                     <div class="multi-select-options" id="source-key-options" role="group" aria-label="Source keys"></div>
                     <button class="multi-select-clear" id="clear-source-keys" type="button">Clear selection</button>
                   </div>
                 </details>
               </fieldset>
               <label>Usage <select name="usage"><option value="">All nodes</option><option value="used">Used in workflows</option><option value="unused">Not used</option></select></label>
-              <label>Capability <select name="capability"><option value="">All capabilities</option><option value="tool">Usable as AI tool</option><option value="credentials">Requires credentials</option><option value="hidden">Hidden nodes</option></select></label>
+              <fieldset class="multi-filter">
+                <legend>Capabilities</legend>
+                <details class="multi-select" id="capability-filter">
+                  <summary><span id="capability-summary" aria-live="polite">All capabilities</span></summary>
+                  <div class="multi-select-panel">
+                    <p>Matches any selected capability</p>
+                    <div class="multi-select-options" id="capability-options" role="group" aria-label="Capabilities"></div>
+                    <button class="multi-select-clear" id="clear-capabilities" type="button">Clear selection</button>
+                  </div>
+                </details>
+              </fieldset>
               <label>Min. workflows <input name="min_workflows" type="number" min="0" inputmode="numeric" placeholder="0"></label>
-              <label>Min. instances <input name="min_instances" type="number" min="0" inputmode="numeric" placeholder="0"></label>
+              <label>Max. workflows <input name="max_workflows" type="number" min="0" inputmode="numeric" placeholder="No limit"></label>
               <label>Sort by <select name="sort"><option value="rank">Relevance</option><option value="workflows">Most workflows</option><option value="instances">Most instances</option><option value="name">Name A–Z</option></select></label>
             </div>
             <div class="filter-actions"><button class="clear" type="button" id="clear">Clear</button><button class="submit" type="submit">Search <span aria-hidden="true">↗</span></button></div>

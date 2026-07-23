@@ -15,7 +15,12 @@ const themeIcon = document.querySelector("#theme-icon");
 const sourceKeyFilter = document.querySelector("#source-key-filter");
 const sourceKeyOptions = document.querySelector("#source-key-options");
 const sourceKeySummary = document.querySelector("#source-key-summary");
+const sourceKeyHint = document.querySelector("#source-key-hint");
 const clearSourceKeys = document.querySelector("#clear-source-keys");
+const capabilityFilter = document.querySelector("#capability-filter");
+const capabilityOptions = document.querySelector("#capability-options");
+const capabilitySummary = document.querySelector("#capability-summary");
+const clearCapabilities = document.querySelector("#clear-capabilities");
 
 const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const fullNumber = new Intl.NumberFormat("en-US");
@@ -88,21 +93,32 @@ function matchesFilters(node, fields) {
   const group = fields.get("group");
   const packageName = fields.get("package");
   const keys = fields.getAll("key").filter(Boolean);
+  const keyMode = fields.get("key_mode") || "include";
   const usage = fields.get("usage");
-  const capability = fields.get("capability");
+  const capabilities = fields.getAll("capability").filter(Boolean);
   const minWorkflows = Number(fields.get("min_workflows"));
-  const minInstances = Number(fields.get("min_instances"));
+  const maxWorkflowsValue = fields.get("max_workflows");
+  const maxWorkflows = maxWorkflowsValue === "" ? null : Number(maxWorkflowsValue);
   if (category && !node.categories.includes(category)) return false;
   if (group && !node.groups.includes(group)) return false;
   if (packageName && node.packageName !== packageName) return false;
-  if (keys.length && !keys.some((key) => node.keys.includes(key))) return false;
+  if (keys.length) {
+    const containsSelectedKey = keys.some((key) => node.keys.includes(key));
+    if (keyMode === "include" && !containsSelectedKey) return false;
+    if (keyMode === "exclude" && containsSelectedKey) return false;
+  }
   if (usage === "used" && node.usage.instanceCount === 0) return false;
   if (usage === "unused" && node.usage.instanceCount > 0) return false;
-  if (capability === "tool" && !node.usableAsTool) return false;
-  if (capability === "credentials" && !node.credentials.length) return false;
-  if (capability === "hidden" && !node.hidden) return false;
+  if (capabilities.length) {
+    const hasSelectedCapability = capabilities.some((capability) => (
+      (capability === "tool" && node.usableAsTool)
+      || (capability === "credentials" && node.credentials.length > 0)
+      || (capability === "hidden" && node.hidden)
+    ));
+    if (!hasSelectedCapability) return false;
+  }
   if (minWorkflows && node.usage.workflowCount < minWorkflows) return false;
-  if (minInstances && node.usage.instanceCount < minInstances) return false;
+  if (maxWorkflows !== null && node.usage.workflowCount > maxWorkflows) return false;
   return true;
 }
 
@@ -197,7 +213,10 @@ function renderResults(results, total, offset) {
 
 function runSearch(event, offset = 0) {
   event?.preventDefault();
-  if (event?.type === "submit") sourceKeyFilter.open = false;
+  if (event?.type === "submit") {
+    sourceKeyFilter.open = false;
+    capabilityFilter.open = false;
+  }
   const fields = new FormData(form);
   const terms = normalize(fields.get("q")).match(/[\p{L}\p{N}_]+/gu) || [];
   resultsSection.setAttribute("aria-busy", "true");
@@ -233,26 +252,66 @@ function addCountedOptions(select, values, suffix = "nodes") {
 
 function updateSourceKeySummary() {
   const selected = [...sourceKeyOptions.querySelectorAll('input[name="key"]:checked')].map((input) => input.value);
+  const excludes = form.elements.key_mode.value === "exclude";
   if (!selected.length) sourceKeySummary.textContent = "All source keys";
-  else if (selected.length <= 2) sourceKeySummary.textContent = selected.join(", ");
-  else sourceKeySummary.textContent = `${selected.length} keys selected`;
-  sourceKeySummary.title = selected.join(", ");
+  else if (selected.length <= 2) sourceKeySummary.textContent = `${excludes ? "Without: " : ""}${selected.join(", ")}`;
+  else sourceKeySummary.textContent = `${excludes ? "Exclude" : "Include"} ${selected.length} keys`;
+  sourceKeySummary.title = `${excludes && selected.length ? "Without: " : ""}${selected.join(", ")}`;
+  sourceKeyHint.textContent = excludes
+    ? "Show nodes containing none of the selected keys"
+    : "Show nodes containing any selected key";
+}
+
+function updateCapabilitySummary() {
+  const selected = [...capabilityOptions.querySelectorAll('input[name="capability"]:checked')];
+  const labels = selected.map((input) => input.dataset.label);
+  if (!labels.length) capabilitySummary.textContent = "All capabilities";
+  else if (labels.length === 1) capabilitySummary.textContent = labels[0];
+  else capabilitySummary.textContent = `${labels.length} capabilities selected`;
+  capabilitySummary.title = labels.join(", ");
+}
+
+function closeOnEscape(filter, event) {
+  if (event.key === "Escape" && filter.open) {
+    filter.open = false;
+    filter.querySelector("summary").focus();
+  }
+}
+
+function appendCheckboxOption(container, name, value, labelText, count, countSuffix) {
+  const option = document.createElement("label");
+  option.className = "multi-select-option";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = name;
+  input.value = value;
+  input.dataset.label = labelText;
+  const label = document.createElement("span");
+  label.textContent = labelText;
+  const countLabel = document.createElement("small");
+  countLabel.textContent = `${fullNumber.format(count)} ${countSuffix}`;
+  option.append(input, label, countLabel);
+  container.append(option);
 }
 
 form.addEventListener("submit", runSearch);
 document.querySelector("#clear").addEventListener("click", () => { form.reset(); runSearch(); query.focus(); });
-form.addEventListener("reset", () => window.setTimeout(updateSourceKeySummary, 0));
-sourceKeyOptions.addEventListener("change", updateSourceKeySummary);
+form.addEventListener("reset", () => window.setTimeout(() => {
+  updateSourceKeySummary();
+  updateCapabilitySummary();
+}, 0));
+sourceKeyFilter.addEventListener("change", updateSourceKeySummary);
 clearSourceKeys.addEventListener("click", () => {
   for (const input of sourceKeyOptions.querySelectorAll('input[name="key"]:checked')) input.checked = false;
   updateSourceKeySummary();
 });
-sourceKeyFilter.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && sourceKeyFilter.open) {
-    sourceKeyFilter.open = false;
-    sourceKeyFilter.querySelector("summary").focus();
-  }
+capabilityOptions.addEventListener("change", updateCapabilitySummary);
+clearCapabilities.addEventListener("click", () => {
+  for (const input of capabilityOptions.querySelectorAll('input[name="capability"]:checked')) input.checked = false;
+  updateCapabilitySummary();
 });
+sourceKeyFilter.addEventListener("keydown", (event) => closeOnEscape(sourceKeyFilter, event));
+capabilityFilter.addEventListener("keydown", (event) => closeOnEscape(capabilityFilter, event));
 previousPage.addEventListener("click", () => runSearch(undefined, Math.max(0, currentOffset - pageSize)));
 nextPage.addEventListener("click", () => runSearch(undefined, currentOffset + pageSize));
 document.addEventListener("keydown", (event) => {
@@ -262,7 +321,9 @@ document.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("click", (event) => {
-  if (sourceKeyFilter.open && !sourceKeyFilter.contains(event.target)) sourceKeyFilter.open = false;
+  for (const filter of document.querySelectorAll(".multi-select[open]")) {
+    if (!filter.contains(event.target)) filter.open = false;
+  }
 });
 
 fetch(document.body.dataset.indexUrl)
@@ -277,19 +338,11 @@ fetch(document.body.dataset.indexUrl)
     addCountedOptions(document.querySelector("#group"), nodes.flatMap((node) => node.groups));
     addCountedOptions(document.querySelector("#package"), nodes.map((node) => node.packageName));
     for (const item of index.potentialKeys) {
-      const option = document.createElement("label");
-      option.className = "source-key-option";
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.name = "key";
-      input.value = item.key;
-      const label = document.createElement("span");
-      label.textContent = item.key;
-      const count = document.createElement("small");
-      count.textContent = `${fullNumber.format(item.itemCount)} defs`;
-      option.append(input, label, count);
-      sourceKeyOptions.append(option);
+      appendCheckboxOption(sourceKeyOptions, "key", item.key, item.key, item.itemCount, "defs");
     }
+    appendCheckboxOption(capabilityOptions, "capability", "tool", "Usable as AI tool", nodes.filter((node) => node.usableAsTool).length, "nodes");
+    appendCheckboxOption(capabilityOptions, "capability", "credentials", "Requires credentials", nodes.filter((node) => node.credentials.length).length, "nodes");
+    appendCheckboxOption(capabilityOptions, "capability", "hidden", "Hidden nodes", nodes.filter((node) => node.hidden).length, "nodes");
     const summary = index.summary;
     status.textContent = `${fullNumber.format(nodes.length)} node types indexed · ${fullNumber.format(summary.usedNodeTypeCount)} used in workflows · map generated ${new Date(index.generatedAt).toLocaleDateString("en-US")}`;
     runSearch();

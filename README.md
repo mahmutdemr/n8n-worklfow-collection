@@ -103,10 +103,11 @@ The site has two independent collection views:
 - `/` searches workflow examples.
 - `/nodes/` explores installed node types, catalog metadata, and usage across workflows.
 
-The Node Explorer supports text search plus category, group, package, multi-select
-source-key, usage, capability, and minimum-usage filters. Selecting multiple source
-keys matches nodes containing any selected key. Both pages share navigation and the
-same system/light/dark theme preference.
+The Node Explorer supports text search plus category, group, package, usage,
+minimum/maximum workflow counts, and multi-select source-key and capability filters.
+Source keys can include nodes containing any selected key or exclude nodes containing
+the selected keys. Multiple capabilities match nodes with any selected capability.
+Both pages share navigation and the same system/light/dark theme preference.
 
 ## Search examples
 
