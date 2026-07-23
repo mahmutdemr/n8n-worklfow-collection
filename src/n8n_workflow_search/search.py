@@ -7,6 +7,7 @@ import json
 import hashlib
 import io
 import re
+import shutil
 import sqlite3
 import tempfile
 from collections import Counter, defaultdict
@@ -24,6 +25,7 @@ DEFAULT_WORKFLOW_DIRECTORY = Path("collection/workflows")
 DEFAULT_INDEX_PATH = Path(".n8n-search/workflows.sqlite3")
 DEFAULT_PAGES_INDEX_PATH = Path("pages/search-index.json")
 DEFAULT_NODE_PAGES_INDEX_PATH = Path("pages/node-search-index.json")
+DEFAULT_NODE_PAGES_ICON_DIRECTORY = Path("pages/node-icons")
 
 
 @dataclass(frozen=True)
@@ -683,7 +685,28 @@ def export_pages_index(
     return len(records)
 
 
-def public_node_index(node_map_path: Path = DEFAULT_NODE_MAP_PATH) -> dict[str, Any]:
+def _public_icon(icon: Any) -> dict[str, Any]:
+    if not isinstance(icon, dict):
+        raise ValueError("Node map is missing local icon metadata. Run 'n8n-search download-node-icons' first.")
+    variants: dict[str, str] = {}
+    for variant in ("light", "dark"):
+        local_path = str(icon.get(variant) or "")
+        parts = Path(local_path).parts
+        if len(parts) < 2 or parts[0] != "icons" or ".." in parts:
+            raise ValueError(f"Node map contains an invalid local icon path: {local_path}")
+        variants[variant] = Path(*parts[1:]).as_posix()
+    return {
+        **variants,
+        "source": str(icon.get("source") or "unknown"),
+        "fallback": icon.get("fallback") is True,
+    }
+
+
+def public_node_index(
+    node_map_path: Path = DEFAULT_NODE_MAP_PATH,
+    *,
+    icon_base_url: str = "/api/node-icons/",
+) -> dict[str, Any]:
     """Return the public, browser-searchable subset of the local node map."""
     try:
         with node_map_path.open(encoding="utf-8") as source:
@@ -711,7 +734,7 @@ def public_node_index(node_map_path: Path = DEFAULT_NODE_MAP_PATH) -> dict[str, 
                 "categories": node.get("categories") or [],
                 "credentials": node.get("credentials") or [],
                 "documentationUrls": node.get("documentationUrls") or [],
-                "iconUrl": node.get("iconUrl") or "",
+                "icon": _public_icon(node.get("icon")),
                 "usableAsTool": node.get("usableAsTool") is True,
                 "hidden": node.get("hidden") is True,
                 "definitionCount": int(catalog.get("definitionCount") or 0),
@@ -734,8 +757,9 @@ def public_node_index(node_map_path: Path = DEFAULT_NODE_MAP_PATH) -> dict[str, 
             }
         )
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "generatedAt": payload.get("generatedAt"),
+        "iconBaseUrl": icon_base_url,
         "summary": payload.get("summary") or {},
         "potentialKeys": payload.get("potentialKeys") or [],
         "nodes": records,
@@ -745,9 +769,58 @@ def public_node_index(node_map_path: Path = DEFAULT_NODE_MAP_PATH) -> dict[str, 
 def export_node_pages_index(
     node_map_path: Path = DEFAULT_NODE_MAP_PATH,
     output_path: Path = DEFAULT_NODE_PAGES_INDEX_PATH,
+    icon_output_directory: Path = DEFAULT_NODE_PAGES_ICON_DIRECTORY,
 ) -> int:
     """Export the minimal public node index used by the GitHub Pages site."""
-    public_index = public_node_index(node_map_path)
+    public_index = public_node_index(node_map_path, icon_base_url="../node-icons/")
+    selected_icon_paths = {
+        node["icon"][variant]
+        for node in public_index["nodes"]
+        for variant in ("light", "dark")
+    }
+    local_icon_directory = node_map_path.parent / "icons"
+    icon_output_directory.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".node-icons.", dir=icon_output_directory.parent))
+    try:
+        for relative_path_text in sorted(selected_icon_paths):
+            relative_path = Path(relative_path_text)
+            source_path = (local_icon_directory / relative_path).resolve()
+            try:
+                source_path.relative_to(local_icon_directory.resolve())
+            except ValueError as error:
+                raise ValueError(f"Public icon path escapes the local icon directory: {relative_path_text}") from error
+            if not source_path.is_file():
+                raise FileNotFoundError(f"Local node icon was not found: {source_path}")
+            destination = staging / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_path, destination)
+
+        license_source = local_icon_directory / "fontawesome" / "LICENSE.txt"
+        if license_source.is_file():
+            license_destination = staging / "fontawesome" / "LICENSE.txt"
+            license_destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(license_source, license_destination)
+            public_index["fontAwesomeLicenseUrl"] = "../node-icons/fontawesome/LICENSE.txt"
+
+        backup = icon_output_directory.parent / f".{icon_output_directory.name}.backup"
+        if backup.exists():
+            shutil.rmtree(backup)
+        if icon_output_directory.exists():
+            icon_output_directory.replace(backup)
+        try:
+            staging.replace(icon_output_directory)
+        except BaseException:
+            if backup.exists() and not icon_output_directory.exists():
+                backup.replace(icon_output_directory)
+            raise
+        else:
+            if backup.exists():
+                shutil.rmtree(backup)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+
+    public_index["iconFileCount"] = len(selected_icon_paths)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent, delete=False

@@ -22,6 +22,7 @@ from .search import (
     DEFAULT_NODE_CATALOG_PATH,
     DEFAULT_NODE_KEY_STATS_PATH,
     DEFAULT_NODE_MAP_PATH,
+    DEFAULT_NODE_PAGES_ICON_DIRECTORY,
     DEFAULT_NODE_PAGES_INDEX_PATH,
     DEFAULT_PAGES_INDEX_PATH,
     DEFAULT_WORKFLOW_DIRECTORY,
@@ -99,6 +100,10 @@ def _parser() -> argparse.ArgumentParser:
     export.add_argument("--node-file", type=_path, default=DEFAULT_NODE_MAP_PATH, help="local node map path")
     export.add_argument(
         "--node-output", type=_path, default=DEFAULT_NODE_PAGES_INDEX_PATH, help="public node JSON index path"
+    )
+    export.add_argument(
+        "--node-icons-output", type=_path, default=DEFAULT_NODE_PAGES_ICON_DIRECTORY,
+        help="public node icon directory",
     )
 
     query = subcommands.add_parser("search", help="Search workflow metadata.")
@@ -199,7 +204,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "export-pages":
             workflow_count = export_pages_index(args.file, args.output)
-            node_count = export_node_pages_index(args.node_file, args.node_output)
+            node_count = export_node_pages_index(args.node_file, args.node_output, args.node_icons_output)
             print(
                 f"Exported {workflow_count:,} workflows to {args.output} and "
                 f"{node_count:,} nodes to {args.node_output}."

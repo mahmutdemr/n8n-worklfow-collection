@@ -298,6 +298,10 @@ def test_pages_export_contains_only_public_search_metadata(tmp_path: Path) -> No
 def test_node_pages_export_contains_search_metadata_without_local_sources(tmp_path: Path) -> None:
     map_path = tmp_path / "node-map.json"
     output_path = tmp_path / "pages" / "node-search-index.json"
+    icon_output_path = tmp_path / "pages" / "node-icons"
+    local_icon_path = tmp_path / "icons" / "n8n" / "foo.svg"
+    local_icon_path.parent.mkdir(parents=True)
+    local_icon_path.write_text("<svg xmlns=\"http://www.w3.org/2000/svg\"/>", encoding="utf-8")
     map_path.write_text(
         json.dumps(
             {
@@ -317,7 +321,12 @@ def test_node_pages_export_contains_search_metadata_without_local_sources(tmp_pa
                         "categories": ["Data & Storage"],
                         "credentials": ["fooApi"],
                         "documentationUrls": ["https://example.test/foo"],
-                        "iconUrl": {"light": "https://example.test/light.svg", "dark": "https://example.test/dark.svg"},
+                        "icon": {
+                            "light": "icons/n8n/foo.svg",
+                            "dark": "icons/n8n/foo.svg",
+                            "source": "n8n-design-system",
+                            "fallback": False,
+                        },
                         "usableAsTool": True,
                         "hidden": False,
                         "catalog": {
@@ -342,13 +351,23 @@ def test_node_pages_export_contains_search_metadata_without_local_sources(tmp_pa
         encoding="utf-8",
     )
 
-    assert export_node_pages_index(map_path, output_path) == 1
+    assert export_node_pages_index(map_path, output_path, icon_output_path) == 1
     exported = json.loads(output_path.read_text(encoding="utf-8"))
     record = exported["nodes"][0]
 
     assert record["keys"] == ["credentials"]
-    assert record["iconUrl"]["dark"].endswith("dark.svg")
+    assert record["icon"] == {
+        "light": "n8n/foo.svg",
+        "dark": "n8n/foo.svg",
+        "source": "n8n-design-system",
+        "fallback": False,
+    }
     assert record["usage"]["workflowCount"] == 4
+    assert exported["schemaVersion"] == 2
+    assert exported["iconBaseUrl"] == "../node-icons/"
+    assert exported["iconFileCount"] == 1
+    assert (icon_output_path / "n8n" / "foo.svg").is_file()
+    assert "iconUrl" not in record
     assert "sources" not in exported
     assert "definitions" not in record
 

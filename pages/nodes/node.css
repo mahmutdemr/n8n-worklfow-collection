@@ -5,6 +5,7 @@
 .node-heading { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 13px; margin-top: 18px; }
 .node-icon { display: grid; width: 48px; height: 48px; place-items: center; overflow: hidden; border: 1px solid #34434d; border-radius: 12px; color: #b6f18d; background: #10171f; font: 800 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .node-icon img { display: block; width: 30px; height: 30px; object-fit: contain; }
+.node-icon.monochrome img { filter: invert(91%) sepia(18%) saturate(676%) hue-rotate(48deg) brightness(104%); opacity: .9; }
 .node-heading h2 { margin: 0 0 6px; }
 .node-type { display: block; overflow: hidden; color: #81919b; font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .node-package { max-width: 64%; overflow: hidden; color: #a6e879; text-overflow: ellipsis; white-space: nowrap; }
@@ -27,6 +28,7 @@
 .metadata-details dd { margin: 0; overflow-wrap: anywhere; color: #aebbc2; font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .node-card .result-actions { min-height: 15px; padding-top: 15px; }
 html[data-theme="light"] .node-icon { color: #36744e; border-color: #c3d0c8; background: #eef4f0; }
+html[data-theme="light"] .node-icon.monochrome img { filter: none; opacity: .72; }
 html[data-theme="light"] .node-type,
 html[data-theme="light"] .node-description,
 html[data-theme="light"] .node-facts { color: #5d7067; }

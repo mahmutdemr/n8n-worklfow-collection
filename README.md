@@ -79,6 +79,12 @@ unique node types, and enriches `node-map.json` with the selected local icon.
 Relative catalog URLs are resolved against `http://localhost:5678/` by default;
 use `--n8n-url` or `--container` when the local installation differs.
 
+Running `uv run n8n-search export-pages` copies only the light/dark icon files
+selected by the node map into `pages/node-icons/` and writes package-local paths
+to `pages/node-search-index.json`. The public Node Explorer therefore does not
+depend on the local n8n server or third-party icon hosts at runtime. Font Awesome
+license information is included with the exported assets.
+
 ## Browser interface
 
 Start the local interface with:

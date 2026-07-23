@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Type
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .search import (
     DEFAULT_INDEX_PATH,
@@ -88,7 +89,30 @@ def create_handler(
                 except ValueError as error:
                     self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
                 return
+            if request.path.startswith("/api/node-icons/"):
+                self._handle_node_icon(unquote(request.path.removeprefix("/api/node-icons/")))
+                return
             super().do_GET()
+
+        def _handle_node_icon(self, relative_path: str) -> None:
+            icon_directory = (node_map_path.parent / "icons").resolve()
+            icon_path = (icon_directory / relative_path).resolve()
+            try:
+                icon_path.relative_to(icon_directory)
+            except ValueError:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            if not icon_path.is_file():
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            body = icon_path.read_bytes()
+            content_type, _ = mimetypes.guess_type(icon_path.name)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type or "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(body)
 
         def _handle_search(self, parameters: dict[str, list[str]]) -> None:
             try:

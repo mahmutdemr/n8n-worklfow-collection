@@ -19,6 +19,7 @@ const percentNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 
 const pageSize = 30;
 let currentOffset = 0;
 let nodes = [];
+let iconBaseUrl = "";
 
 const themeStorageKey = "n8n-workflow-theme";
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -108,15 +109,13 @@ function createChip(text, className = "") {
   return chip;
 }
 
-function iconSources(iconUrl) {
-  if (typeof iconUrl === "string" && /^https?:\/\//.test(iconUrl)) return { light: iconUrl, dark: iconUrl };
-  if (iconUrl && typeof iconUrl === "object") {
-    return {
-      light: /^https?:\/\//.test(iconUrl.light || "") ? iconUrl.light : "",
-      dark: /^https?:\/\//.test(iconUrl.dark || "") ? iconUrl.dark : "",
-    };
-  }
-  return { light: "", dark: "" };
+function iconSources(icon) {
+  if (!icon || typeof icon !== "object") return { light: "", dark: "" };
+  const base = new URL(iconBaseUrl, document.baseURI);
+  return {
+    light: icon.light ? new URL(icon.light, base).href : "",
+    dark: icon.dark ? new URL(icon.dark, base).href : "",
+  };
 }
 
 function renderResults(results, total, offset) {
@@ -144,8 +143,11 @@ function renderResults(results, total, offset) {
     const icon = card.querySelector(".node-icon");
     const image = icon.querySelector("img");
     const fallback = icon.querySelector("span");
+    if (["n8n-design-system", "fontawesome", "fallback"].includes(node.icon?.source)) {
+      icon.classList.add("monochrome");
+    }
     fallback.textContent = (node.displayName || node.name || "?").trim().slice(0, 2).toUpperCase();
-    const sources = iconSources(node.iconUrl);
+    const sources = iconSources(node.icon);
     image.dataset.light = sources.light;
     image.dataset.dark = sources.dark;
     const source = sources[document.documentElement.dataset.theme] || sources.light || sources.dark;
@@ -241,6 +243,7 @@ fetch(document.body.dataset.indexUrl)
     return response.json();
   })
   .then((index) => {
+    iconBaseUrl = index.iconBaseUrl;
     nodes = index.nodes;
     addCountedOptions(document.querySelector("#category"), nodes.flatMap((node) => node.categories));
     addCountedOptions(document.querySelector("#group"), nodes.flatMap((node) => node.groups));
