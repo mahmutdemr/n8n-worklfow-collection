@@ -12,6 +12,20 @@ const nextPage = document.querySelector("#next-page");
 const pageStatus = document.querySelector("#page-status");
 const themeSelect = document.querySelector("#theme-select");
 const themeIcon = document.querySelector("#theme-icon");
+const categoryFilter = document.querySelector("#category-filter");
+const categoryOptions = document.querySelector("#category-options");
+const categorySummary = document.querySelector("#category-summary");
+const categoryHint = document.querySelector("#category-hint");
+const categoryMatchMode = document.querySelector("#category-match-mode");
+const categorySearch = document.querySelector("#category-search");
+const clearCategories = document.querySelector("#clear-categories");
+const groupFilter = document.querySelector("#group-filter");
+const groupOptions = document.querySelector("#group-options");
+const groupSummary = document.querySelector("#group-summary");
+const groupHint = document.querySelector("#group-hint");
+const groupMatchMode = document.querySelector("#group-match-mode");
+const groupSearch = document.querySelector("#group-search");
+const clearGroups = document.querySelector("#clear-groups");
 const sourceKeyFilter = document.querySelector("#source-key-filter");
 const sourceKeyOptions = document.querySelector("#source-key-options");
 const sourceKeySummary = document.querySelector("#source-key-summary");
@@ -20,6 +34,7 @@ const clearSourceKeys = document.querySelector("#clear-source-keys");
 const capabilityFilter = document.querySelector("#capability-filter");
 const capabilityOptions = document.querySelector("#capability-options");
 const capabilitySummary = document.querySelector("#capability-summary");
+const capabilityHint = document.querySelector("#capability-hint");
 const clearCapabilities = document.querySelector("#clear-capabilities");
 const detailDrawer = document.querySelector("#node-detail-drawer");
 const detailBackdrop = document.querySelector("#detail-backdrop");
@@ -85,6 +100,19 @@ function normalize(value) {
   return String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
+function normalizedFacetValues(values) {
+  return values.map((value) => String(value).trim()).filter(Boolean);
+}
+
+function matchesFacetFilter(nodeValues, selectedValues, mode, match) {
+  if (!selectedValues.length) return true;
+  const values = new Set(normalizedFacetValues(nodeValues));
+  const matchesSelection = match === "all"
+    ? selectedValues.every((value) => values.has(value))
+    : selectedValues.some((value) => values.has(value));
+  return mode === "exclude" ? !matchesSelection : matchesSelection;
+}
+
 function searchScore(node, terms, mode) {
   if (!terms.length) return 0;
   const fields = [
@@ -106,18 +134,23 @@ function searchScore(node, terms, mode) {
 }
 
 function matchesFilters(node, fields) {
-  const category = fields.get("category");
-  const group = fields.get("group");
+  const categories = fields.getAll("category").filter(Boolean);
+  const categoryMode = fields.get("category_mode") || "include";
+  const categoryMatch = fields.get("category_match") || "any";
+  const groups = fields.getAll("group").filter(Boolean);
+  const groupMode = fields.get("group_mode") || "include";
+  const groupMatch = fields.get("group_match") || "any";
   const packageName = fields.get("package");
   const keys = fields.getAll("key").filter(Boolean);
   const keyMode = fields.get("key_mode") || "include";
   const usage = fields.get("usage");
   const capabilities = fields.getAll("capability").filter(Boolean);
+  const capabilityMode = fields.get("capability_mode") || "include";
   const minWorkflows = Number(fields.get("min_workflows"));
   const maxWorkflowsValue = fields.get("max_workflows");
   const maxWorkflows = maxWorkflowsValue === "" ? null : Number(maxWorkflowsValue);
-  if (category && !node.categories.includes(category)) return false;
-  if (group && !node.groups.includes(group)) return false;
+  if (!matchesFacetFilter(node.categories, categories, categoryMode, categoryMatch)) return false;
+  if (!matchesFacetFilter(node.groups, groups, groupMode, groupMatch)) return false;
   if (packageName && node.packageName !== packageName) return false;
   if (keys.length) {
     const containsSelectedKey = keys.some((key) => node.keys.includes(key));
@@ -132,7 +165,8 @@ function matchesFilters(node, fields) {
       || (capability === "credentials" && node.credentials.length > 0)
       || (capability === "hidden" && node.hidden)
     ));
-    if (!hasSelectedCapability) return false;
+    if (capabilityMode === "include" && !hasSelectedCapability) return false;
+    if (capabilityMode === "exclude" && hasSelectedCapability) return false;
   }
   if (minWorkflows && node.usage.workflowCount < minWorkflows) return false;
   if (maxWorkflows !== null && node.usage.workflowCount > maxWorkflows) return false;
@@ -486,6 +520,8 @@ function renderResults(results, total, offset) {
 function runSearch(event, offset = 0) {
   event?.preventDefault();
   if (event?.type === "submit") {
+    categoryFilter.open = false;
+    groupFilter.open = false;
     sourceKeyFilter.open = false;
     capabilityFilter.open = false;
   }
@@ -522,6 +558,67 @@ function addCountedOptions(select, values, suffix = "nodes") {
   }
 }
 
+function addCountedCheckboxOptions(container, name, values) {
+  const counts = new Map();
+  for (const value of normalizedFacetValues(values)) counts.set(value, (counts.get(value) || 0) + 1);
+  for (const [value, count] of [...counts].sort(([left], [right]) => left.localeCompare(right))) {
+    appendCheckboxOption(container, name, value, value, count, "nodes");
+  }
+}
+
+function updateFacetSummary({ name, singular, plural, options, summary, hint, matchMode }) {
+  const selected = [...options.querySelectorAll(`input[name="${name}"]:checked`)];
+  const labels = selected.map((input) => input.dataset.label);
+  const excludes = form.elements[`${name}_mode`].value === "exclude";
+  const matchesAll = labels.length > 1 && form.elements[`${name}_match`].value === "all";
+  matchMode.hidden = labels.length < 2;
+
+  if (!labels.length) summary.textContent = `All ${plural}`;
+  else if (labels.length === 1) summary.textContent = `${excludes ? "Without: " : ""}${labels[0]}`;
+  else if (excludes && matchesAll) summary.textContent = `Not all ${labels.length} ${plural}`;
+  else if (excludes) summary.textContent = `Without any of ${labels.length} ${plural}`;
+  else if (matchesAll) summary.textContent = `All ${labels.length} ${plural}`;
+  else summary.textContent = `Any of ${labels.length} ${plural}`;
+
+  if (!labels.length) {
+    summary.title = "";
+    hint.textContent = `Select one or more ${plural}`;
+  } else if (excludes && matchesAll) {
+    summary.title = `Exclude nodes containing all: ${labels.join(", ")}`;
+    hint.textContent = `Hide nodes only when they have every selected ${singular}`;
+  } else if (excludes) {
+    summary.title = `Exclude nodes containing any: ${labels.join(", ")}`;
+    hint.textContent = `Show nodes with none of the selected ${plural}`;
+  } else if (matchesAll) {
+    summary.title = `Include nodes containing all: ${labels.join(", ")}`;
+    hint.textContent = `Show nodes with every selected ${singular}`;
+  } else {
+    summary.title = `Include nodes containing any: ${labels.join(", ")}`;
+    hint.textContent = `Show nodes with any selected ${singular}`;
+  }
+}
+
+function updateCategorySummary() {
+  updateFacetSummary({
+    name: "category", singular: "category", plural: "categories",
+    options: categoryOptions, summary: categorySummary, hint: categoryHint, matchMode: categoryMatchMode,
+  });
+}
+
+function updateGroupSummary() {
+  updateFacetSummary({
+    name: "group", singular: "group", plural: "groups",
+    options: groupOptions, summary: groupSummary, hint: groupHint, matchMode: groupMatchMode,
+  });
+}
+
+function filterFacetOptions(search, options) {
+  const term = normalize(search.value.trim());
+  for (const option of options.querySelectorAll(".multi-select-option")) {
+    option.hidden = Boolean(term) && !option.dataset.search.includes(term);
+  }
+}
+
 function updateSourceKeySummary() {
   const selected = [...sourceKeyOptions.querySelectorAll('input[name="key"]:checked')].map((input) => input.value);
   const excludes = form.elements.key_mode.value === "exclude";
@@ -537,10 +634,14 @@ function updateSourceKeySummary() {
 function updateCapabilitySummary() {
   const selected = [...capabilityOptions.querySelectorAll('input[name="capability"]:checked')];
   const labels = selected.map((input) => input.dataset.label);
+  const excludes = form.elements.capability_mode.value === "exclude";
   if (!labels.length) capabilitySummary.textContent = "All capabilities";
-  else if (labels.length === 1) capabilitySummary.textContent = labels[0];
-  else capabilitySummary.textContent = `${labels.length} capabilities selected`;
-  capabilitySummary.title = labels.join(", ");
+  else if (labels.length === 1) capabilitySummary.textContent = `${excludes ? "Without: " : ""}${labels[0]}`;
+  else capabilitySummary.textContent = `${excludes ? "Exclude" : "Include"} ${labels.length} capabilities`;
+  capabilitySummary.title = `${excludes && labels.length ? "Without: " : ""}${labels.join(", ")}`;
+  capabilityHint.textContent = excludes
+    ? "Show nodes with none of the selected capabilities"
+    : "Show nodes with any selected capability";
 }
 
 function closeOnEscape(filter, event) {
@@ -553,6 +654,7 @@ function closeOnEscape(filter, event) {
 function appendCheckboxOption(container, name, value, labelText, count, countSuffix) {
   const option = document.createElement("label");
   option.className = "multi-select-option";
+  option.dataset.search = normalize(labelText);
   const input = document.createElement("input");
   input.type = "checkbox";
   input.name = name;
@@ -569,21 +671,39 @@ function appendCheckboxOption(container, name, value, labelText, count, countSuf
 form.addEventListener("submit", runSearch);
 document.querySelector("#clear").addEventListener("click", () => { form.reset(); runSearch(); query.focus(); });
 form.addEventListener("reset", () => window.setTimeout(() => {
+  updateCategorySummary();
+  updateGroupSummary();
   updateSourceKeySummary();
   updateCapabilitySummary();
+  filterFacetOptions(categorySearch, categoryOptions);
+  filterFacetOptions(groupSearch, groupOptions);
 }, 0));
+categoryFilter.addEventListener("change", updateCategorySummary);
+clearCategories.addEventListener("click", () => {
+  for (const input of categoryOptions.querySelectorAll('input[name="category"]:checked')) input.checked = false;
+  updateCategorySummary();
+});
+categorySearch.addEventListener("input", () => filterFacetOptions(categorySearch, categoryOptions));
+groupFilter.addEventListener("change", updateGroupSummary);
+clearGroups.addEventListener("click", () => {
+  for (const input of groupOptions.querySelectorAll('input[name="group"]:checked')) input.checked = false;
+  updateGroupSummary();
+});
+groupSearch.addEventListener("input", () => filterFacetOptions(groupSearch, groupOptions));
 sourceKeyFilter.addEventListener("change", updateSourceKeySummary);
 clearSourceKeys.addEventListener("click", () => {
   for (const input of sourceKeyOptions.querySelectorAll('input[name="key"]:checked')) input.checked = false;
   updateSourceKeySummary();
 });
-capabilityOptions.addEventListener("change", updateCapabilitySummary);
+capabilityFilter.addEventListener("change", updateCapabilitySummary);
 clearCapabilities.addEventListener("click", () => {
   for (const input of capabilityOptions.querySelectorAll('input[name="capability"]:checked')) input.checked = false;
   updateCapabilitySummary();
 });
 sourceKeyFilter.addEventListener("keydown", (event) => closeOnEscape(sourceKeyFilter, event));
 capabilityFilter.addEventListener("keydown", (event) => closeOnEscape(capabilityFilter, event));
+categoryFilter.addEventListener("keydown", (event) => closeOnEscape(categoryFilter, event));
+groupFilter.addEventListener("keydown", (event) => closeOnEscape(groupFilter, event));
 previousPage.addEventListener("click", () => runSearch(undefined, Math.max(0, currentOffset - pageSize)));
 nextPage.addEventListener("click", () => runSearch(undefined, currentOffset + pageSize));
 detailClose.addEventListener("click", () => closeNodeDetails());
@@ -645,8 +765,8 @@ fetch(document.body.dataset.indexUrl)
     iconBaseUrl = index.iconBaseUrl;
     detailBaseUrl = index.detailBaseUrl;
     nodes = index.nodes;
-    addCountedOptions(document.querySelector("#category"), nodes.flatMap((node) => node.categories));
-    addCountedOptions(document.querySelector("#group"), nodes.flatMap((node) => node.groups));
+    addCountedCheckboxOptions(categoryOptions, "category", nodes.flatMap((node) => node.categories));
+    addCountedCheckboxOptions(groupOptions, "group", nodes.flatMap((node) => node.groups));
     addCountedOptions(document.querySelector("#package"), nodes.map((node) => node.packageName));
     for (const item of index.potentialKeys) {
       appendCheckboxOption(sourceKeyOptions, "key", item.key, item.key, item.itemCount, "defs");
@@ -654,6 +774,8 @@ fetch(document.body.dataset.indexUrl)
     appendCheckboxOption(capabilityOptions, "capability", "tool", "Usable as AI tool", nodes.filter((node) => node.usableAsTool).length, "nodes");
     appendCheckboxOption(capabilityOptions, "capability", "credentials", "Requires credentials", nodes.filter((node) => node.credentials.length).length, "nodes");
     appendCheckboxOption(capabilityOptions, "capability", "hidden", "Hidden nodes", nodes.filter((node) => node.hidden).length, "nodes");
+    updateCategorySummary();
+    updateGroupSummary();
     const summary = index.summary;
     status.textContent = `${fullNumber.format(nodes.length)} node types indexed · ${fullNumber.format(summary.usedNodeTypeCount)} used in workflows · map generated ${new Date(index.generatedAt).toLocaleDateString("en-US")}`;
     runSearch();

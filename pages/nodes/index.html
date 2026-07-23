@@ -58,8 +58,46 @@
           <div class="controls">
             <div class="filter-grid node-filter-grid">
               <label>Match <select name="mode"><option value="all">all words</option><option value="any">any word</option></select></label>
-              <label>Category <select name="category" id="category"><option value="">All categories</option></select></label>
-              <label>Group <select name="group" id="group"><option value="">All groups</option></select></label>
+              <fieldset class="multi-filter">
+                <legend>Category</legend>
+                <details class="multi-select" id="category-filter">
+                  <summary><span id="category-summary" aria-live="polite">All categories</span></summary>
+                  <div class="multi-select-panel">
+                    <div class="multi-select-mode" role="group" aria-label="Category filter mode">
+                      <label><input type="radio" name="category_mode" value="include" checked><span>Include</span></label>
+                      <label><input type="radio" name="category_mode" value="exclude"><span>Exclude</span></label>
+                    </div>
+                    <div class="multi-select-mode" id="category-match-mode" role="group" aria-label="Category matching rule" hidden>
+                      <label><input type="radio" name="category_match" value="any" checked><span>Any selected</span></label>
+                      <label><input type="radio" name="category_match" value="all"><span>All selected</span></label>
+                    </div>
+                    <p id="category-hint">Show nodes with any selected category</p>
+                    <input class="multi-select-search" id="category-search" type="search" placeholder="Find categories…" autocomplete="off" aria-label="Find categories">
+                    <div class="multi-select-options" id="category-options" role="group" aria-label="Categories"></div>
+                    <button class="multi-select-clear" id="clear-categories" type="button">Clear selection</button>
+                  </div>
+                </details>
+              </fieldset>
+              <fieldset class="multi-filter">
+                <legend>Group</legend>
+                <details class="multi-select" id="group-filter">
+                  <summary><span id="group-summary" aria-live="polite">All groups</span></summary>
+                  <div class="multi-select-panel">
+                    <div class="multi-select-mode" role="group" aria-label="Group filter mode">
+                      <label><input type="radio" name="group_mode" value="include" checked><span>Include</span></label>
+                      <label><input type="radio" name="group_mode" value="exclude"><span>Exclude</span></label>
+                    </div>
+                    <div class="multi-select-mode" id="group-match-mode" role="group" aria-label="Group matching rule" hidden>
+                      <label><input type="radio" name="group_match" value="any" checked><span>Any selected</span></label>
+                      <label><input type="radio" name="group_match" value="all"><span>All selected</span></label>
+                    </div>
+                    <p id="group-hint">Show nodes with any selected group</p>
+                    <input class="multi-select-search" id="group-search" type="search" placeholder="Find groups…" autocomplete="off" aria-label="Find groups">
+                    <div class="multi-select-options" id="group-options" role="group" aria-label="Groups"></div>
+                    <button class="multi-select-clear" id="clear-groups" type="button">Clear selection</button>
+                  </div>
+                </details>
+              </fieldset>
               <label>Package <select name="package" id="package"><option value="">All packages</option></select></label>
               <fieldset class="multi-filter">
                 <legend>Source keys</legend>
@@ -82,7 +120,11 @@
                 <details class="multi-select" id="capability-filter">
                   <summary><span id="capability-summary" aria-live="polite">All capabilities</span></summary>
                   <div class="multi-select-panel">
-                    <p>Matches any selected capability</p>
+                    <div class="multi-select-mode" role="group" aria-label="Capability matching rule">
+                      <label><input type="radio" name="capability_mode" value="include" checked><span>Include any</span></label>
+                      <label><input type="radio" name="capability_mode" value="exclude"><span>Exclude all</span></label>
+                    </div>
+                    <p id="capability-hint">Show nodes with any selected capability</p>
                     <div class="multi-select-options" id="capability-options" role="group" aria-label="Capabilities"></div>
                     <button class="multi-select-clear" id="clear-capabilities" type="button">Clear selection</button>
                   </div>
